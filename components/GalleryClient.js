@@ -94,7 +94,7 @@ export default function GalleryClient({ paintings, galleryError }) {
         key: result.keyId,
         amount: result.amount,
         currency: result.currency || 'INR',
-        name: 'Rangrekha Art Gallery',
+        name: 'Artistẻ Art Gallery',
         description: selected.title,
         image: '/favicon.ico',
         order_id: result.orderId,
@@ -138,9 +138,9 @@ export default function GalleryClient({ paintings, galleryError }) {
         Original works · Carefully packed · Delivered across India
       </div>
       <header className="mx-auto flex max-w-7xl items-center justify-between px-5 py-6 md:px-10">
-        <a href="#top" className="flex items-center gap-3" aria-label="Rangrekha home">
+        <a href="#top" className="flex items-center gap-3" aria-label="Artistẻ home">
           <span className="flex h-10 w-10 items-center justify-center rounded-full border border-[#a24d36]/40 font-display text-xl text-clay">R</span>
-          <span><span className="block font-display text-[22px] leading-none tracking-tight">rangrekha</span><span className="mt-1 block text-[8px] uppercase tracking-[.27em] text-muted">The Indian art house</span></span>
+          <span><span className="block font-display text-[22px] leading-none tracking-tight">Artistẻ</span><span className="mt-1 block text-[8px] uppercase tracking-[.27em] text-muted">The Indian art house</span></span>
         </a>
         <nav className="hidden items-center gap-8 text-[11px] font-bold uppercase tracking-[.16em] text-[#655c52] md:flex">
           <a href="#gallery" className="transition hover:text-clay">The collection</a>
@@ -180,7 +180,7 @@ export default function GalleryClient({ paintings, galleryError }) {
             <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-black/25 to-transparent" />
             <span className="absolute bottom-5 left-6 text-[9px] uppercase tracking-[.25em] text-white">Art that feels like home</span>
           </div>
-          <div className="absolute -bottom-7 -right-2 rotate-3 bg-[#fffdf8] px-5 py-4 shadow-soft md:-right-8"><p className="font-display text-xl italic text-clay">Made to matter.</p><p className="mt-1 text-[8px] uppercase tracking-[.22em] text-muted">A Rangrekha selection</p></div>
+          <div className="absolute -bottom-7 -right-2 rotate-3 bg-[#fffdf8] px-5 py-4 shadow-soft md:-right-8"><p className="font-display text-xl italic text-clay">Made to matter.</p><p className="mt-1 text-[8px] uppercase tracking-[.22em] text-muted">A Artistẻ selection</p></div>
         </div>
       </section>
 
@@ -214,12 +214,12 @@ export default function GalleryClient({ paintings, galleryError }) {
         <div className="relative min-h-[300px] overflow-hidden bg-[#d4b995] p-10 md:min-h-[390px]">
           <div className="absolute -left-12 -top-20 h-72 w-72 rounded-full border border-[#fff4df]/60" />
           <div className="absolute bottom-[-100px] right-[-40px] h-72 w-72 rounded-full bg-[#a24d36]/30" />
-          <div className="relative flex h-full min-h-[220px] flex-col justify-between"><span className="font-display text-7xl text-[#fff8ed]">“</span><p className="max-w-sm font-display text-3xl leading-snug text-[#fff8ed]">A painting is not just something you see. It is something you feel.</p><span className="text-[9px] uppercase tracking-[.25em] text-[#fff8ed]/80">The Rangrekha thought</span></div>
+          <div className="relative flex h-full min-h-[220px] flex-col justify-between"><span className="font-display text-7xl text-[#fff8ed]">“</span><p className="max-w-sm font-display text-3xl leading-snug text-[#fff8ed]">A painting is not just something you see. It is something you feel.</p><span className="text-[9px] uppercase tracking-[.25em] text-[#fff8ed]/80">The Artistẻ thought</span></div>
         </div>
-        <div className="py-4 md:pl-10"><p className="mb-4 text-[10px] font-bold uppercase tracking-[.25em] text-clay">A note from us</p><h2 className="font-display text-5xl leading-[1.05] tracking-[-.04em]">Art should be <em className="font-normal text-clay">personal.</em></h2><p className="mt-6 max-w-lg text-sm leading-7 text-muted">Rangrekha brings original works closer to the people who connect with them. We believe in the quiet joy of finding a piece that belongs in your space, reflects your story, and makes an everyday moment feel special.</p><a href="#gallery" className="mt-8 inline-flex items-center gap-3 text-[10px] font-bold uppercase tracking-[.18em] text-clay">Meet the collection <span>↗</span></a></div>
+        <div className="py-4 md:pl-10"><p className="mb-4 text-[10px] font-bold uppercase tracking-[.25em] text-clay">A note from us</p><h2 className="font-display text-5xl leading-[1.05] tracking-[-.04em]">Art should be <em className="font-normal text-clay">personal.</em></h2><p className="mt-6 max-w-lg text-sm leading-7 text-muted">Artistẻ brings original works closer to the people who connect with them. We believe in the quiet joy of finding a piece that belongs in your space, reflects your story, and makes an everyday moment feel special.</p><a href="#gallery" className="mt-8 inline-flex items-center gap-3 text-[10px] font-bold uppercase tracking-[.18em] text-clay">Meet the collection <span>↗</span></a></div>
       </section>
 
-      <footer className="bg-[#28231f] px-5 py-9 text-[#e8ddce] md:px-10"><div className="mx-auto flex max-w-7xl flex-col justify-between gap-5 md:flex-row md:items-center"><div><p className="font-display text-2xl">rangrekha</p><p className="mt-1 text-[9px] uppercase tracking-[.2em] text-[#aa9a86]">The Indian art house</p></div><p className="text-xs text-[#aa9a86]">Original art. Thoughtfully chosen. © {new Date().getFullYear()} Rangrekha.</p><a href="/admin" className="text-[10px] uppercase tracking-[.17em] text-[#e8ddce]">Studio login ↗</a></div></footer>
+      <footer className="bg-[#28231f] px-5 py-9 text-[#e8ddce] md:px-10"><div className="mx-auto flex max-w-7xl flex-col justify-between gap-5 md:flex-row md:items-center"><div><p className="font-display text-2xl">Artistẻ</p><p className="mt-1 text-[9px] uppercase tracking-[.2em] text-[#aa9a86]">The Indian art house</p></div><p className="text-xs text-[#aa9a86]">Original art. Thoughtfully chosen. © {new Date().getFullYear()} Artistẻ.</p><a href="/admin" className="text-[10px] uppercase tracking-[.17em] text-[#e8ddce]">Studio login ↗</a></div></footer>
 
       {selected && (
         <div className="modal-backdrop fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-3 sm:p-6" onMouseDown={(event) => { if (event.target === event.currentTarget) closeModal(); }}>
