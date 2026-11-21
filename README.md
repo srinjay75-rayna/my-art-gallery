@@ -8,11 +8,12 @@ Artiste v4 upgrades the existing Next.js App Router + JavaScript + Tailwind + Su
 - Public navigation contains Gallery, Our Story, For Cuṣtomers, For Artiṣte and Cart. No Admin / Host / Owner link is published.
 - The owner dashboard moved to the unlinked `/studio-vault-owner` route. `/admin` redirects to `/`.
 - Customer and Artist access pages now show two tabs: **Existing User — Log In** and **New User — Sign Up**.
-- Returning users enter only their email and receive a Supabase magic sign-in link. New users enter only name, email and +91 mobile number; the verification email takes them to the dedicated onboarding page.
+- Returning Customers and Artists can log in with Email + Password or Email + 6-Digit OTP. New users enter their name, email, +91 phone and a password, then verify a numeric code directly on the same page.
 - New Customers complete `/account/onboarding` with shipping street address, landmark, PIN lookup, locality, city and State / UT.
 - New Artists complete `/artist/onboarding` with biography, pickup address, PIN lookup, Shiprocket pickup-location name, IFSC-verified bank details and optional UPI ID. Profile photo remains optional.
-- Incomplete Customer and Artist profiles are redirected to the relevant onboarding route. The Cart preserves a pending Add to Cart / Buy Now intent across the email-verification round trip.
-- Existing V3 capabilities remain: public browsing, Artist attribution, customer-safe gallery, verified passwordless-email account APIs, artist-only commission calculator and earnings ledger, multi-Artist courier quotations, one Razorpay payment, order tracking, server-verified payment capture, encrypted Artist bank account numbers, and owner payout actions.
+- After successful in-page code verification, new users continue in the same browser tab to the relevant onboarding route. Incomplete profiles are redirected to onboarding. The Cart preserves a pending Add to Cart / Buy Now intent across account sign-in.
+- Added Artiste-managed 6-digit email OTP endpoints backed by SMTP, hashed OTP records in `email_otps`, 10-minute expiry, atomic single-use verification, attempt limits and send-rate limiting. No verification email contains a sign-in link or redirect URL.
+- Existing V3 capabilities remain: public browsing, Artist attribution, customer-safe gallery, authenticated account APIs, artist-only commission calculator and earnings ledger, multi-Artist courier quotations, one Razorpay payment, order tracking, server-verified payment capture, encrypted Artist bank account numbers, and owner payout actions.
 
 
 ## Final polish included in this archive
@@ -62,6 +63,12 @@ Fill `.env.local` with the values below. Never commit `.env.local` or expose ser
 | `RAZORPAY_KEY_ID` | Razorpay Key ID |
 | `RAZORPAY_KEY_SECRET` | Server-only Razorpay API secret |
 | `RAZORPAY_WEBHOOK_SECRET` | Separate secret configured for Razorpay webhook signature validation |
+| `SMTP_HOST` | SMTP hostname used by Artiste to deliver numeric verification codes |
+| `SMTP_PORT` | SMTP port (usually 587 for STARTTLS or 465 for implicit TLS) |
+| `SMTP_USER` | SMTP username and default sender identity |
+| `SMTP_PASS` | SMTP password / app password |
+| `SMTP_FROM` | Optional sender label/address; defaults to `SMTP_USER` |
+| `OTP_HASH_SECRET` | Optional dedicated secret used to HMAC OTPs and hashed IP rate-limit keys; falls back to the service-role key if omitted | 
 
 Generate the encryption key once and keep a secure backup:
 
@@ -81,43 +88,30 @@ Do not regenerate this key after Artist bank accounts have been encrypted. Losin
 
 The RLS policies intentionally do not provide direct browser access to Customer orders, shipment records, payout records or private Artist pickup origins. Protected server API routes verify the Supabase JWT and use the service-role key for elevated operations. `GRANT ALL` does not override RLS.
 
-## 4. Supabase email links and Auth URLs
+## 4. In-page numeric email OTP and SMTP configuration
 
-The V4 UI uses Supabase `signInWithOtp` with email magic-link redirects:
+Artiste now sends its own six-digit numeric email codes through Nodemailer and your SMTP provider. Customers and Artists do not receive Supabase magic links, confirmation URLs, or cross-device redirects. The code is typed into the current `/account` or `/artist` page; successful verification creates a Supabase Auth session and routes the browser tab directly to the dashboard or onboarding page.
 
-- Customer login: `https://YOUR_DOMAIN/account`
-- Customer signup: `https://YOUR_DOMAIN/account/onboarding`
-- Artist login: `https://YOUR_DOMAIN/artist`
-- Artist signup: `https://YOUR_DOMAIN/artist/onboarding`
+1. Add `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER` and `SMTP_PASS` to your deployment secrets. `SMTP_PORT=587` uses STARTTLS; `SMTP_PORT=465` uses implicit TLS. Set `SMTP_FROM` only if your provider authorizes a separate sender identity.
+2. Set a stable random `OTP_HASH_SECRET` (recommended) using `openssl rand -hex 32`. If omitted, the server falls back to `SUPABASE_SERVICE_ROLE_KEY` for HMAC hashing. Do not expose any of these variables to the browser.
+3. Run the updated `database/schema.sql`. It creates the private `email_otps` table and the atomic `consume_email_otp` function. Only `service_role` can access these records or execute the consume function.
+4. Ensure your SMTP account is authorized to send from the address configured in `SMTP_USER` / `SMTP_FROM`, and test delivery to Gmail, Outlook and other common providers.
+5. Codes are numeric, expire after 10 minutes, are single-use, and are limited to five failed attempts. Email resend has a cooldown and hourly limits per email and originating connection.
 
-In Supabase Authentication settings:
-
-1. Enable Email provider / passwordless email sign-in.
-2. Set the Site URL to your production origin.
-3. Add the four URLs above, plus the corresponding `http://localhost:3000/...` URLs, to Additional Redirect URLs.
-4. Configure the Email / Magic Link template to use the Supabase confirmation URL, for example:
-
-```html
-<h2>Your Artiste sign-in link</h2>
-<p>Use the secure link below to verify your email and continue.</p>
-<p><a href="{{ .ConfirmationURL }}">Verify email and continue to Artiste</a></p>
-<p>If you did not request this link, you can ignore this email.</p>
-```
-
-Use a trusted production email provider, configure Supabase email rate limits / CAPTCHA / abuse controls, and test expired or reused links. Supabase's callback handling is enabled by the browser client (`detectSessionInUrl: true`). The app accepts only a signed, verified passwordless Supabase session on protected Customer / Artist API routes.
+The API endpoints are `POST /api/auth/send-otp` and `POST /api/auth/verify-otp`. The server hashes codes with HMAC-SHA256 and never stores a plaintext OTP. Supabase's Auth Admin `generateLink` result is used internally only after the independently generated SMTP OTP has been consumed; no action link is emailed, exposed to the browser or opened by the Customer / Artist. The resulting Supabase JWT is returned over HTTPS and installed in the same browser session using `auth.setSession`.
 
 ## 5. Customer sign-in and checkout
 
 - Gallery browsing, details, Artist attribution and Artist filtering are public.
 - Add to Cart / Buy Now opens the Customer login / signup tabs when no valid session exists.
-- The cart stores the pending artwork intent across the email verification redirect. Once the Customer profile is complete, the intent resumes in the Cart drawer.
+- The cart stores the pending artwork intent across in-page sign-in. Once the Customer profile is complete, the intent resumes in the Cart drawer.
 - A Customer must have a verified email, +91 phone number, full street address, landmark, locality, city, State / UT and a six-digit delivery PIN before checkout.
 - The free India Post lookup uses `https://api.postalpincode.in/pincode/{PIN}` to suggest post-office localities and populate District / State. If offline, users can enter the locality, city and State / UT manually.
 - Shiprocket rate requests use each Artist's private pickup PIN and the Customer's delivery PIN. Mixed-Artist baskets are grouped by pickup studio and may create multiple parcels / tracking IDs, while Razorpay collects a single payment.
 
 ## 6. Artist onboarding and pickup locations
 
-- Artist signup starts with Artist / Studio Name, email and +91 phone.
+- Artist signup starts with Artist / Studio Name, email, +91 phone and a password, then verifies a six-digit code on the same page.
 - After verification, `/artist/onboarding` collects the bio, studio street address, landmark, PIN / locality / city / State, registered Shiprocket pickup-location name, and payout details.
 - IFSC format is validated and verified server-side against Razorpay's public IFSC directory before saving the bank name and branch.
 - Bank account numbers must match their confirmation and are encrypted with AES-256-GCM before persistence. The Artist Portal displays a masked account number; the owner-only Studio Vault is the only UI that requests the decrypted bank number for legitimate payout administration.
@@ -154,12 +148,12 @@ A captured payment that cannot be fulfilled because a work became unavailable re
 
 - [ ] Back up database and Storage before migration.
 - [ ] Run `database/schema.sql` and verify old artworks and orders remain.
-- [ ] Configure magic-link redirects and test Customer / Artist sign-up and returning sign-in.
+- [ ] Configure SMTP and test Customer / Artist password sign-in, OTP sign-in, OTP signup, expiry, resend cooldown and single-use verification.
 - [ ] Test onboarding redirects for incomplete and completed profiles.
 - [ ] Test India Post PIN lookup, offline fallback, State / UT dropdown, phone and landmark validation.
 - [ ] Verify IFSC success / invalid / unavailable scenarios and confirm bank account encryption key backup.
 - [ ] Register and test every Artist pickup origin in Shiprocket.
-- [ ] Test cart persistence across email-link redirects and multi-Artist combined payment.
+- [ ] Test cart persistence across in-page sign-in and multi-Artist combined payment.
 - [ ] Test Razorpay webhook signature, duplicate notifications, payment capture and order persistence.
 - [ ] Test `/account` My Orders and `/studio-vault-owner` owner orders / payouts.
 - [ ] Review privacy notice, Terms, refunds, invoices, taxes, dispatch SLA, payouts, shipping liability and customer support before public launch.
@@ -186,4 +180,6 @@ A captured payment that cannot be fulfilled because a work became unavailable re
 - `PATCH, DELETE /api/artist/paintings/:id`
 - `GET /api/artist/verify-ifsc`
 - `GET, POST /api/artist/payout-account`
+- `POST /api/auth/send-otp` — sends a six-digit numeric email code via SMTP
+- `POST /api/auth/verify-otp` — atomically consumes the code and returns an active Supabase session
 - `/api/admin/*` — owner-session-protected endpoints (not linked publicly)

@@ -1,4 +1,4 @@
--- Artiste marketplace schema v3.2
+-- Artiste marketplace schema v4.0 with in-page email OTP authentication
 -- Additive / rerunnable migration. Existing Artiste paintings, Customers, orders and Artist records are retained.
 -- Apply in Supabase SQL Editor. Back up before deploying any production database migration.
 
@@ -9,6 +9,7 @@ create extension if not exists pgcrypto;
 -- -----------------------------------------------------------------------------
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
+  email text,
   full_name text,
   phone text,
   address text,
@@ -20,6 +21,7 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+alter table public.profiles add column if not exists email text;
 alter table public.profiles add column if not exists full_name text;
 alter table public.profiles add column if not exists phone text;
 alter table public.profiles add column if not exists address text;
@@ -244,10 +246,18 @@ from auth.users u
 where o.user_id is null
   and lower(coalesce(nullif(o.customer_email, ''), o.buyer_email, '')) = lower(coalesce(u.email, ''));
 
-insert into public.profiles(id, full_name)
-select u.id, coalesce(u.raw_user_meta_data->>'full_name', '')
+insert into public.profiles(id, full_name, email, phone)
+select u.id,
+       coalesce(u.raw_user_meta_data->>'full_name', ''),
+       lower(coalesce(u.email, '')),
+       coalesce(u.raw_user_meta_data->>'phone', '')
 from auth.users u
-on conflict (id) do nothing;
+on conflict (id) do update
+  set email = case when coalesce(excluded.email, '') <> '' then excluded.email else profiles.email end,
+      full_name = case when coalesce(profiles.full_name, '') = '' then excluded.full_name else profiles.full_name end,
+      phone = case when coalesce(profiles.phone, '') = '' then excluded.phone else profiles.phone end;
+create unique index if not exists profiles_email_lower_uidx
+  on public.profiles(lower(email)) where coalesce(email, '') <> '';
 
 update public.artists a
 set email = lower(u.email)
@@ -502,7 +512,9 @@ begin
 end;
 $$;
 drop trigger if exists on_auth_user_created_artiste on auth.users;
-create trigger on_auth_user_created_artiste after insert on auth.users for each row execute procedure public.handle_new_auth_user();
+create trigger on_auth_user_created_artiste
+  after insert or update of email, raw_user_meta_data on auth.users
+  for each row execute procedure public.handle_new_auth_user();
 
 -- Helper for ownership checks in RLS. No Artist private row is exposed to callers.
 create or replace function public.current_user_owns_artist(p_artist_id uuid)
@@ -694,21 +706,123 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.profiles(id, full_name, phone)
+  insert into public.profiles(id, full_name, email, phone)
   values (
     new.id,
     coalesce(new.raw_user_meta_data->>'full_name', ''),
+    lower(coalesce(new.email, '')),
     coalesce(new.raw_user_meta_data->>'phone', '')
   )
   on conflict (id) do update
-    set full_name = case when coalesce(profiles.full_name, '') = '' then excluded.full_name else profiles.full_name end,
+    set email = case when coalesce(excluded.email, '') <> '' then excluded.email else profiles.email end,
+        full_name = case when coalesce(profiles.full_name, '') = '' then excluded.full_name else profiles.full_name end,
         phone = case when coalesce(profiles.phone, '') = '' then excluded.phone else profiles.phone end;
   return new;
 end;
 $$;
 
--- Reminder: configure the Supabase Email / Magic Link template with
--- {{ .ConfirmationURL }} so verified users return to the dedicated onboarding
--- path requested by the app. Passwordless sign-in is issued via signInWithOtp;
--- the redirect callback completes Supabase's OTP verification before any
--- protected Customer / Artist API route accepts the resulting signed JWT.
+-- Customer / Artist email verification is performed by Artiste's SMTP-backed
+-- numeric OTP routes. No Supabase email confirmation template or redirect URL
+-- is required for the in-page signup/login flow.
+
+-- -----------------------------------------------------------------------------
+-- Artiste in-page email OTPs (no customer-facing magic links or redirects)
+-- -----------------------------------------------------------------------------
+create table if not exists public.email_otps (
+  id uuid primary key default gen_random_uuid(),
+  email text not null,
+  account_type text not null check (account_type in ('customer', 'artist')),
+  purpose text not null check (purpose in ('login', 'signup')),
+  otp_hash text not null,
+  metadata jsonb not null default '{}'::jsonb,
+  expires_at timestamptz not null,
+  attempts integer not null default 0 check (attempts >= 0),
+  ip_hash text,
+  created_at timestamptz not null default now(),
+  used_at timestamptz
+);
+
+alter table public.email_otps add column if not exists email text;
+alter table public.email_otps add column if not exists account_type text;
+alter table public.email_otps add column if not exists purpose text;
+alter table public.email_otps add column if not exists otp_hash text;
+alter table public.email_otps add column if not exists metadata jsonb not null default '{}'::jsonb;
+alter table public.email_otps add column if not exists expires_at timestamptz;
+alter table public.email_otps add column if not exists attempts integer not null default 0;
+alter table public.email_otps add column if not exists ip_hash text;
+alter table public.email_otps add column if not exists created_at timestamptz not null default now();
+alter table public.email_otps add column if not exists used_at timestamptz;
+
+create index if not exists email_otps_email_flow_created_idx
+  on public.email_otps (lower(email), account_type, purpose, created_at desc);
+create index if not exists email_otps_ip_created_idx
+  on public.email_otps (ip_hash, created_at desc);
+create index if not exists email_otps_expiry_idx
+  on public.email_otps (expires_at);
+
+alter table public.email_otps enable row level security;
+drop policy if exists email_otps_no_browser_access on public.email_otps;
+-- Deliberately create no anon/authenticated policy. Only server API routes using
+-- SUPABASE_SERVICE_ROLE_KEY can read or mutate OTP records.
+revoke all privileges on table public.email_otps from public, anon, authenticated;
+grant all privileges on table public.email_otps to service_role;
+
+-- Consume a code atomically, under a row lock, so simultaneous requests cannot
+-- verify the same code twice. Five wrong attempts burn the issued code.
+create or replace function public.consume_email_otp(
+  p_email text,
+  p_account_type text,
+  p_purpose text,
+  p_otp_hash text
+)
+returns table(is_valid boolean, payload jsonb, attempts_remaining integer)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_otp public.email_otps%rowtype;
+  v_attempts_left integer;
+begin
+  select * into v_otp
+  from public.email_otps e
+  where lower(e.email) = lower(p_email)
+    and e.account_type = p_account_type
+    and e.purpose = p_purpose
+    and e.used_at is null
+    and e.expires_at > now()
+  order by e.created_at desc
+  limit 1
+  for update;
+
+  if not found then
+    return query select false, '{}'::jsonb, 0;
+    return;
+  end if;
+
+  if v_otp.attempts >= 5 then
+    update public.email_otps set used_at = now() where id = v_otp.id;
+    return query select false, '{}'::jsonb, 0;
+    return;
+  end if;
+
+  if v_otp.otp_hash <> p_otp_hash then
+    update public.email_otps
+      set attempts = attempts + 1,
+          used_at = case when attempts + 1 >= 5 then now() else used_at end
+      where id = v_otp.id;
+    v_attempts_left := greatest(4 - v_otp.attempts, 0);
+    return query select false, '{}'::jsonb, v_attempts_left;
+    return;
+  end if;
+
+  update public.email_otps set used_at = now() where id = v_otp.id;
+  return query select true, coalesce(v_otp.metadata, '{}'::jsonb), greatest(5 - v_otp.attempts, 0);
+end;
+$$;
+
+revoke all on function public.consume_email_otp(text, text, text, text) from public, anon, authenticated;
+grant execute on function public.consume_email_otp(text, text, text, text) to service_role;
+
+-- OTP rows are temporary. The send endpoint opportunistically prunes expired
+-- records older than one day using service_role; no scheduled job is required.
