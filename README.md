@@ -1,6 +1,18 @@
-# Artiste v5 — Original Indian Art Marketplace
+# Artiste v7 — Original Paintings & Fine-Art Photography Marketplace
 
-Artiste v5 upgrades the existing Next.js App Router + JavaScript + Tailwind + Supabase + Shiprocket + Razorpay project while retaining the Artiste brand, A monogram, warm editorial gallery styling, existing API integrations, and the additive v3 database migration.
+Artiste v7 upgrades the existing Next.js App Router + JavaScript + Tailwind + Supabase + Shiprocket + Razorpay project while retaining the Artiste brand, A monogram, warm editorial gallery styling, existing API integrations, and the additive v3 database migration.
+
+
+## Version 7 — creator showcase & fine-art photography
+
+- Homepage and `/artists` now show every approved, non-suspended Artist, including creators who have not yet published a work. Circular `avatar_url` portraits retain an elegant monogram fallback.
+- `/artists/[id]` displays each active creator’s public biography and complete approved collection, including paintings and photographs.
+- Added the `category` field to `paintings`, with a safe `Painting` default for existing records. Artist listings can select **Original Painting** or **Fine-Art Photography**.
+- Added homepage art-form filter pills, a curated photography highlight strip, and a dedicated `/photography` gallery that shares the existing customer authentication, cart, checkout and delivery quotation flow.
+- Paintings remain the primary gallery focus; Fine-Art Photography is presented as a curated secondary collection.
+- The public brand tagline is now: “Artiste — Original Paintings & Fine-Art Photography, Delivered With Love From Independent Indian Studios to Your Home.”
+
+Run the updated `database/schema.sql` in Supabase before deploying V7 so the additive `paintings.category` column is available. Existing paintings automatically receive the `Painting` default.
 
 ## V4 changes
 
@@ -212,6 +224,13 @@ Run the updated `database/schema.sql` in the Supabase SQL Editor before deployin
 
 The local economy / studio pickup choices do not incur a paid API subscription. Shiprocket rates still require your existing Shiprocket account. Configure the exact company support and contact details in `lib/siteConfig.js` before issuing customer documents.
 
+
+## Version 7 database and portfolio query fixes
+
+- Public Server Components prefer `SUPABASE_SERVICE_ROLE_KEY` for public Artist/profile reads and fall back to `NEXT_PUBLIC_SUPABASE_ANON_KEY` when the service-role key is not configured.
+- `database/schema.sql` recreates the public Artist SELECT policy so public Artist directory and portfolio requests are not blocked by RLS. Browser roles receive SELECT access only to public profile columns; private email, account and pickup/contact columns remain restricted.
+- Individual Artist portfolios merge approved works linked through either `artist_id` or an exact case-insensitive `artist_name` match, with duplicate rows removed.
+- New listings carry the current Artist ID from the portal; the server independently resolves the signed-in Artist and writes the trusted `artist_id`, `artist_name` and `avatar_url` to each painting/photograph row.
 
 ## Version 6 updates
 

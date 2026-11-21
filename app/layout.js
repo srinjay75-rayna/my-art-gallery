@@ -5,8 +5,8 @@ import EditorialFooter from '@/components/EditorialFooter';
 import ArtisteConcierge from '@/components/ArtisteConcierge';
 
 export const metadata = {
-  title: 'Artiste — Original Indian Art',
-  description: 'Artiste — a considered Indian art house for original works, independent Artists and thoughtful Customers.',
+  title: 'Artiste — Original Paintings & Fine-Art Photography',
+  description: 'Artiste — Original Paintings & Fine-Art Photography, Delivered With Love From Independent Indian Studios to Your Home.',
 };
 
 export default function RootLayout({ children }) {

@@ -21,7 +21,7 @@ import IndianAddressForm from '@/components/IndianAddressForm';
 const ArtistPrivateEarnings = dynamic(() => import('@/components/ArtistPrivateEarnings'), { ssr: false, loading: () => null });
 const money = (value) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(Number(value || 0));
 const emptyPickup = { full_name: '', phone: '', address: '', landmark: '', locality: '', city: '', state: '', pincode: '' };
-const artworkBlank = { title: '', medium: '', dimensions: '', price: '', weight_kg: '0.5', length_cm: '', breadth_cm: '', height_cm: '' };
+const artworkBlank = { category: 'Painting', title: '', medium: '', dimensions: '', price: '', weight_kg: '0.5', length_cm: '', breadth_cm: '', height_cm: '' };
 const payoutBlank = { account_holder_name: '', bank_account_number: '', confirm_bank_account_number: '', ifsc_code: '', upi_id: '' };
 
 export default function ArtistPage() {
@@ -223,8 +223,11 @@ export default function ArtistPage() {
     if (artist?.is_suspended) { setError('Your Artist account is suspended. Please contact Artiste support.'); return; }
     setBusy(true); setError(''); setNotice('');
     try {
+      const artistProfile = artist;
+      if (!artistProfile?.id) throw new Error('Your Artist profile could not be verified. Refresh the portal and try again.');
       const data = new FormData();
       Object.entries(form).forEach(([key, value]) => data.append(key, value));
+      data.append('artist_id', artistProfile.id);
       data.append('photo', photo);
       const result = await api('/api/artist/paintings', { method: 'POST', body: data });
       setNotice(result.message);
@@ -276,7 +279,7 @@ export default function ArtistPage() {
     <p className="eyebrow flex items-center gap-2"><Palette size={14}/> For Artiṣte · Independent Artist programme</p>
     <div className="mt-3 flex flex-wrap items-center gap-4">
       {session && <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full border-4 border-[#e9d8c4] bg-[#f1e8dc] shadow-soft">{avatarUrl ? <img src={avatarUrl} alt={`${artist?.artist_name || 'Artist'} profile`} className="h-full w-full rounded-full object-cover"/> : <span className="font-display text-3xl text-clay">A</span>}</div>}
-      <div><h1 className="max-w-3xl font-display text-5xl leading-tight md:text-6xl">Your work deserves <em className="font-normal text-clay">its own room.</em></h1><p className="mt-3 max-w-2xl text-sm leading-7 text-muted">Create your Artist profile, publish original work and manage your Artiste collection.</p></div>
+      <div><h1 className="max-w-3xl font-display text-5xl leading-tight md:text-6xl">Your work deserves <em className="font-normal text-clay">its own room.</em></h1><p className="mt-3 max-w-2xl text-sm leading-7 text-muted">Create your Artist profile, publish original paintings or fine-art photographs, and manage your Artiste collection.</p></div>
     </div>
     {error && <p role="alert" className="mt-6 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
     {notice && <p role="status" className="mt-6 rounded-xl bg-green-50 p-3 text-sm text-green-800">{notice}</p>}
@@ -291,12 +294,13 @@ export default function ArtistPage() {
           <section className="rounded-3xl border border-[#e5dccf] bg-[#fffdf8] p-6 shadow-soft md:p-7">
             <p className="eyebrow flex items-center gap-2"><Palette size={13}/> Artist studio</p>
             <h2 className="mt-2 font-display text-3xl">List an Artwork</h2>
-            <p className="mt-2 text-xs leading-5 text-muted">Your verified Artist studio is ready to publish original work directly to the Artiste gallery.</p>
+            <p className="mt-2 text-xs leading-5 text-muted">Your verified Artist studio can publish original paintings and fine-art photography directly to the Artiste gallery.</p>
             {isSuspended && <p className="mt-4 rounded-xl bg-red-50 p-3 text-xs text-red-800">Publishing is disabled while your account is suspended.</p>}
             <form onSubmit={uploadArtwork} className="mt-5 grid gap-3">
-              <label className="label">Artwork photo<input id="artist-painting-photo" type="file" accept="image/jpeg,image/png,image/webp,image/avif" required onChange={(e) => setPhoto(e.target.files?.[0] || null)} className="mt-2 block w-full text-xs"/></label>
+              <label className="label">Art Form / Discipline<select className="field mt-1" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}><option value="Painting">Original Painting</option><option value="Photography">Fine-Art Photography</option></select></label>
+              <label className="label">{form.category === 'Photography' ? 'Photograph file' : 'Artwork photo'}<input id="artist-painting-photo" type="file" accept="image/jpeg,image/png,image/webp,image/avif" required onChange={(e) => setPhoto(e.target.files?.[0] || null)} className="mt-2 block w-full text-xs"/></label>
               {[
-                ['title', 'Title'], ['medium', 'Medium'], ['dimensions', 'Canvas size'],
+                ['title', 'Title'], ['medium', form.category === 'Photography' ? 'Photographic process / medium' : 'Medium'], ['dimensions', 'Artwork dimensions'],
                 ['price', 'Price (INR)'], ['weight_kg', 'Packed weight (kg)'],
               ].map(([name, label]) => <label className="label" key={name}>{label}<input className="field mt-1" value={form[name]} onChange={(e) => setForm({ ...form, [name]: e.target.value })} required type={['price', 'weight_kg'].includes(name) ? 'number' : 'text'} step={name === 'weight_kg' ? '0.1' : name === 'price' ? '0.01' : undefined} min={name === 'weight_kg' ? '0.2' : name === 'price' ? '1' : undefined}/>{name === 'weight_kg' && <small className="text-muted">Light parcels from 0.2 kg · default 0.5 kg</small>}</label>)}
               <div className="grid grid-cols-3 gap-2">{['length_cm', 'breadth_cm', 'height_cm'].map((name) => <label key={name} className="label">{name.replace('_cm', '')} cm<input className="field mt-1" type="number" min="0.1" step="0.1" required value={form[name]} onChange={(e) => setForm({ ...form, [name]: e.target.value })}/></label>)}</div>
@@ -307,11 +311,11 @@ export default function ArtistPage() {
           <section className="min-w-0">
             <div className="rounded-3xl border border-[#e5dccf] bg-[#fffdf8] p-6 shadow-soft md:p-7">
               <p className="eyebrow flex items-center gap-2"><Wallet size={13}/> Artist workspace</p>
-              <h2 className="mt-2 font-display text-3xl">My Paintings &amp; Earnings</h2>
+              <h2 className="mt-2 font-display text-3xl">My Collection &amp; Earnings</h2>
               <div className="mt-5 grid gap-3">{artworks.map((painting) => <article key={painting.id} className="flex gap-3 rounded-2xl border border-[#e5dccf] bg-[#fffdf8] p-3">
                 <img src={painting.image_url} alt={painting.title} className="h-24 w-20 rounded-xl object-cover"/>
-                <div className="min-w-0 flex-1"><h3 className="font-display text-xl">{painting.title}</h3><p className="text-xs text-muted">{money(painting.price)} · {painting.is_sold ? 'Sold' : painting.is_approved ? 'Published' : 'Unpublished by Artiste'}</p><div className="mt-2 flex flex-wrap gap-2">{!painting.is_sold && <button className="action-btn" disabled={busy || isSuspended} onClick={() => toggleSold(painting)}>Mark sold</button>}<button className="action-btn danger" disabled={busy || painting.is_sold} onClick={() => remove(painting)}>Delete</button></div></div>
-              </article>)}{!artworks.length && <p className="rounded-2xl border border-dashed p-7 text-center text-sm text-muted">Your published paintings will appear here.</p>}</div>
+                <div className="min-w-0 flex-1"><h3 className="font-display text-xl">{painting.title}</h3><p className="text-xs text-muted">{painting.category === 'Photography' ? 'Fine-Art Photography' : 'Original Painting'} · {money(painting.price)} · {painting.is_sold ? 'Sold' : painting.is_approved ? 'Published' : 'Unpublished by Artiste'}</p><div className="mt-2 flex flex-wrap gap-2">{!painting.is_sold && <button className="action-btn" disabled={busy || isSuspended} onClick={() => toggleSold(painting)}>Mark sold</button>}<button className="action-btn danger" disabled={busy || painting.is_sold} onClick={() => remove(painting)}>Delete</button></div></div>
+              </article>)}{!artworks.length && <p className="rounded-2xl border border-dashed p-7 text-center text-sm text-muted">Your published paintings and fine-art photographs will appear here.</p>}</div>
             </div>
             <ArtistPrivateEarnings ledger={ledger} showLedger/>
           </section>
@@ -342,6 +346,6 @@ export default function ArtistPage() {
         </section>
       </>}
     </>}
-    <p className="mt-14 text-center text-[9px] uppercase tracking-[.2em] text-muted">Artiste · Independent Artist portal</p>
+    <p className="mt-14 text-center text-[9px] uppercase tracking-[.2em] text-muted">Artiste · Painters & Fine-Art Photographers</p>
   </div></main>;
 }

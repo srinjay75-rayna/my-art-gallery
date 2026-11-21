@@ -17,7 +17,7 @@ export async function PATCH(request, { params }) {
     if (existingError) throw existingError;
     if (!existing) return NextResponse.json({ error: 'Artwork not found.' }, { status: 404 });
     if (existing.is_sold) return NextResponse.json({ error: 'Sold artworks cannot be edited.' }, { status: 409 });
-    const allowed = ['title', 'medium', 'dimensions', 'price', 'weight_kg', 'length_cm', 'breadth_cm', 'height_cm'];
+    const allowed = ['title', 'medium', 'dimensions', 'price', 'weight_kg', 'length_cm', 'breadth_cm', 'height_cm', 'category'];
     const update = {};
     for (const key of allowed) if (body[key] !== undefined) update[key] = body[key];
     if (body.is_sold !== undefined) {
@@ -29,6 +29,7 @@ export async function PATCH(request, { params }) {
       if (update[key] !== undefined && (!Number.isFinite(Number(update[key])) || Number(update[key]) <= 0)) return NextResponse.json({ error: `${key} must be a positive number.` }, { status: 400 });
     }
     if (update.weight_kg !== undefined && Number(update.weight_kg) < 0.2) return NextResponse.json({ error: 'Packed weight must be at least 0.2 kg.' }, { status: 400 });
+    if (update.category !== undefined && !['Painting', 'Photography'].includes(update.category)) return NextResponse.json({ error: 'Choose Painting or Photography as the art form.' }, { status: 400 });
     if (['title', 'medium', 'dimensions'].some((key) => update[key] !== undefined && !String(update[key]).trim())) return NextResponse.json({ error: 'Text details cannot be blank.' }, { status: 400 });
     const { data, error } = await supabase.from('paintings').update(update).eq('id', id).eq('artist_id', artist.id).select('*').single();
     if (error) throw error;

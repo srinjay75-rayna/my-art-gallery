@@ -101,6 +101,7 @@ create table if not exists public.paintings (
   artist_id uuid references public.artists(id) on delete set null,
   artist_name text not null default 'Artiste Studio',
   avatar_url text not null default '',
+  category text not null default 'Painting',
   is_approved boolean not null default true,
   pickup_pincode text,
   pickup_location text not null default 'Primary',
@@ -110,6 +111,9 @@ alter table public.paintings add column if not exists is_sold boolean not null d
 alter table public.paintings add column if not exists artist_id uuid references public.artists(id) on delete set null;
 alter table public.paintings add column if not exists artist_name text not null default 'Artiste Studio';
 alter table public.paintings add column if not exists avatar_url text not null default '';
+-- V7: Paintings remain the default art form; new listings may also be Fine-Art Photography.
+alter table public.paintings add column if not exists category text not null default 'Painting';
+update public.paintings set category = 'Painting' where category is null or btrim(category) = '';
 alter table public.paintings add column if not exists is_approved boolean not null default true;
 alter table public.paintings add column if not exists pickup_pincode text;
 alter table public.paintings add column if not exists pickup_location text not null default 'Primary';
@@ -637,6 +641,12 @@ begin
 end;
 $$;
 
+-- Public Artist showcase and portfolio pages need read access to Artist records.
+-- The public pages select only the public profile projection; private payout and
+-- pickup details remain in separate restricted tables / server-only endpoints.
+drop policy if exists "Public can view artists" on public.artists;
+create policy "Public can view artists" on public.artists for select using (true);
+
 -- Remove policies from earlier deployments that were broader than current privacy requirements.
 drop policy if exists "Public can read approved artist profiles" on public.artists;
 drop policy if exists "artists_read_approved_or_own" on public.artists;
@@ -698,6 +708,12 @@ create policy artist_payout_accounts_select_own on public.artist_payout_accounts
 -- another Customer's rows, no Artist receives another Artist's records, and the
 -- private dispatch / account tables have no browser-readable policies.
 grant all privileges on table public.paintings, public.orders, public.artists, public.profiles to anon, authenticated, service_role;
+-- Artist rows contain private email and studio pickup/contact fields. Keep the
+-- requested public SELECT RLS policy, but let browser roles read only public
+-- profile columns. Server routes using service_role retain full access.
+revoke select on table public.artists from anon, authenticated;
+revoke select (user_id, email, profile_photo_url, pickup_address, pickup_contact_name, pickup_phone, pickup_landmark, pickup_locality, pickup_pincode, pickup_location) on table public.artists from anon, authenticated;
+grant select (id, artist_name, bio, city, state, avatar_url, is_approved, is_suspended, created_at, updated_at) on table public.artists to anon, authenticated;
 -- TRUNCATE bypasses row-level security. Keep CRUD grants as requested, but never
 -- expose table-wide destructive / trigger privileges to browser roles.
 revoke truncate, references, trigger on table public.paintings, public.orders, public.artists, public.profiles from anon, authenticated;
