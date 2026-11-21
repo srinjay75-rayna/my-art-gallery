@@ -4,11 +4,35 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, ArrowUpRight, BadgeCheck, Banknote, CheckCircle2, Landmark, MapPin, ShieldCheck, UserRoundPlus, Wallet } from 'lucide-react';
 import { getBrowserSupabase } from '@/lib/supabase-browser';
 import { hasEmailOtpSession } from '@/lib/client-auth';
+import { normaliseIndianPhone } from '@/lib/india-address';
 import IndianAddressForm from '@/components/IndianAddressForm';
 
 const emptyAddress = { full_name: '', phone: '', address: '', landmark: '', locality: '', city: '', state: '', pincode: '' };
 const payoutBlank = { account_holder_name: '', bank_account_number: '', confirm_bank_account_number: '', ifsc_code: '', upi_id: '' };
 const completeArtist = (a) => Boolean(a?.artist_name && a?.bio && a?.pickup_address && a?.pickup_phone && a?.pickup_landmark && a?.pickup_locality && a?.city && a?.state && /^\d{6}$/.test(String(a?.pickup_pincode || '')));
+
+function readStoredArtistPhone() {
+  if (typeof window === 'undefined') return '';
+  const keys = ['artiste_artist_phone', 'artiste_artist_signup', 'artiste_signup_artist', 'artiste_signup_data', 'artiste_phone', 'artist_phone', 'phone'];
+  for (const key of keys) {
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) continue;
+      let candidate = raw;
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') candidate = parsed.phone || parsed.mobile || parsed.mobile_number || parsed.user?.phone || '';
+      } catch {}
+      const digits = normaliseIndianPhone(candidate);
+      if (digits) return digits;
+    } catch {}
+  }
+  return '';
+}
+
+function storeArtistPhone(value) {
+  try { window.localStorage.setItem('artiste_artist_phone', normaliseIndianPhone(value)); } catch {}
+}
 
 export default function ArtistOnboardingPage() {
   const router = useRouter();
@@ -28,7 +52,7 @@ export default function ArtistOnboardingPage() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
-  const phoneDigits = useMemo(() => String(address.phone || '').replace(/\D/g, '').replace(/^91/, '').slice(-10), [address.phone]);
+  const phoneDigits = useMemo(() => normaliseIndianPhone(address.phone), [address.phone]);
 
   useEffect(() => {
     let active = true;
@@ -60,10 +84,12 @@ export default function ArtistOnboardingPage() {
         setAddress({
           ...emptyAddress,
           full_name: a?.pickup_contact_name || a?.artist_name || metadata.artist_name || '',
-          phone: a?.pickup_phone || metadata.phone || '',
+          phone: normaliseIndianPhone(a?.pickup_phone || metadata.phone || readStoredArtistPhone()),
           address: a?.pickup_address || '', landmark: a?.pickup_landmark || '', locality: a?.pickup_locality || '',
           city: a?.city || '', state: a?.state || '', pincode: a?.pickup_pincode || '',
         });
+        const initialPhone = normaliseIndianPhone(a?.pickup_phone || metadata.phone || readStoredArtistPhone());
+        if (initialPhone) storeArtistPhone(initialPhone);
         if (dataResult.payoutAccount?.verified_at) {
           setPayoutReady(true);
           setPayout((currentPayout) => ({ ...currentPayout, account_holder_name: dataResult.payoutAccount.account_holder_name || '', ifsc_code: dataResult.payoutAccount.ifsc_code || '', upi_id: dataResult.payoutAccount.upi_id || '' }));
@@ -99,7 +125,7 @@ export default function ArtistOnboardingPage() {
     try {
       if (!payoutReady && !verifiedIfsc) throw new Error('Verify your IFSC code before saving payout details.');
       if (!payoutReady && payout.bank_account_number !== payout.confirm_bank_account_number) throw new Error('Bank account number and confirmation do not match.');
-      if (!/^\d{10}$/.test(phoneDigits)) throw new Error('The +91 mobile number from Step 1 is missing. Sign in again and complete the Artist details.');
+      if (!/^\d{10}$/.test(phoneDigits)) throw new Error('Enter or confirm your 10-digit Indian mobile number for studio pickup.');
 
       const form = new FormData();
       form.set('artist_name', artistName.trim());
@@ -109,6 +135,7 @@ export default function ArtistOnboardingPage() {
       form.set('pickup_address', address.address.trim());
       form.set('pickup_contact_name', artistName.trim());
       form.set('pickup_phone', phoneDigits);
+      storeArtistPhone(phoneDigits);
       form.set('pickup_landmark', address.landmark.trim());
       form.set('pickup_locality', address.locality.trim());
       form.set('pickup_pincode', address.pincode.trim());
@@ -150,6 +177,7 @@ export default function ArtistOnboardingPage() {
       <section className="rounded-3xl border border-[#e5dccf] bg-[#fffdf8] p-6 shadow-soft">
         <h2 className="flex items-center gap-2 font-display text-2xl"><MapPin size={20} className="text-clay" /> Studio Pickup Address</h2>
         <p className="mt-2 text-xs leading-6 text-muted">Shiprocket uses this studio address as the shipping origin for your artworks. Keep the registered pickup-location name accurate.</p>
+        <label className="label mt-4 block">+91 Mobile Number for Studio Pickup<div className="mt-1 flex items-center rounded-xl border border-[#ded6ca] bg-[#fffefa] px-3"><span className="mr-2 text-sm text-muted">+91</span><input className="w-full bg-transparent py-3 text-sm outline-none" type="tel" inputMode="numeric" autoComplete="tel-national" required pattern="[0-9]{10}" maxLength={10} value={phoneDigits} onChange={(e) => { const digits = e.target.value.replace(/\D/g, '').slice(-10); setAddress((current) => ({ ...current, phone: digits })); storeArtistPhone(digits); }} placeholder="10-digit mobile number" /></div><span className="mt-1 block text-[10px] font-normal normal-case tracking-normal text-muted">Confirm or enter the mobile number the courier can use for studio pickup.</span></label>
         <div className="mt-4"><IndianAddressForm value={address} onChange={(patch) => setAddress((current) => ({ ...current, ...patch }))} showContact={false} addressLabel="Studio pickup street address" /></div>
         <label className="label mt-4 block">Shiprocket registered pickup-location name<input className="field mt-1" required value={pickupLocation} onChange={(e) => setPickupLocation(e.target.value)} placeholder="Exact pickup location name in Shiprocket" /></label>
         <p className="mt-2 text-[10px] leading-5 text-muted">This name must exactly match a pickup location already configured in your Shiprocket account. Example: ArtistStudio-Kolkata.</p>
