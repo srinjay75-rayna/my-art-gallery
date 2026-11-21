@@ -35,14 +35,16 @@ export async function POST(request) {
     const originMap = new Map((legacyOrigins || []).map((origin) => [origin.painting_id, origin]));
 
     const enriched = paintings.map((painting) => {
+      const parsedWeight = painting.weight_kg === null || painting.weight_kg === undefined || painting.weight_kg === '' ? NaN : Number(painting.weight_kg);
+      const actualWeight = Number.isFinite(parsedWeight) && parsedWeight > 0 ? parsedWeight : 0.5;
       if (painting.artist_id) {
         const artist = artistMap.get(painting.artist_id);
         if (!artist?.is_approved) throw new Error(`The Artist profile for “${painting.title}” is not approved.`);
         if (!accountMap.get(painting.artist_id)?.verified_at) throw new Error(`The Artist “${artist.artist_name}” must complete verified payout details before checkout.`);
-        return { ...painting, artist_name: artist.artist_name, pickup_pincode: artist.pickup_pincode, pickup_location: artist.pickup_location || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary' };
+        return { ...painting, weight_kg: actualWeight, artist_name: artist.artist_name, pickup_pincode: artist.pickup_pincode, pickup_location: artist.pickup_location || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary' };
       }
       const origin = originMap.get(painting.id);
-      return { ...painting, pickup_pincode: origin?.pickup_pincode || process.env.PICKUP_PINCODE, pickup_location: origin?.pickup_location || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary' };
+      return { ...painting, weight_kg: actualWeight, pickup_pincode: origin?.pickup_pincode || process.env.PICKUP_PINCODE, pickup_location: origin?.pickup_location || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary' };
     });
 
     const groups = await getCourierRatesByPickup(enriched, deliveryPincode);

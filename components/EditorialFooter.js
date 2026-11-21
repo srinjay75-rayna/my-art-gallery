@@ -15,7 +15,7 @@ export default function EditorialFooter() {
             <span className="flex h-11 w-11 items-center justify-center rounded-full border border-[#a24d36]/45 font-serif text-2xl text-[#a24d36]">A</span>
             <span><b className="block font-serif text-3xl leading-none">Artiste</b><small className="mt-1 block text-[8px] uppercase tracking-[.27em] text-[#897d70]">The Indian art house</small></span>
           </Link>
-          <p className="mt-5 max-w-sm text-sm leading-7 text-[#74695e]">Original works, thoughtful collecting and stories made to live with. Discover art that feels at home.</p>
+          <p className="mt-5 max-w-sm text-sm leading-7 text-[#74695e]">Artiste — Where Every Canvas Carries a Soul, Delivering Not Just Art, But Love & Human Connection Across India.</p>
           <a href={siteConfig.instagramUrl} target="_blank" rel="noreferrer" aria-label="Visit Artiste on Instagram" className="mt-5 inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#cbbdae] text-[#8c4a37] transition hover:-translate-y-0.5 hover:bg-[#fffaf3]"><Instagram size={17} strokeWidth={1.7} /></a>
         </div>
 

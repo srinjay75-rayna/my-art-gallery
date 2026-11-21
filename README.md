@@ -211,3 +211,14 @@ Run the updated `database/schema.sql` in the Supabase SQL Editor before deployin
 - Artist earnings rows link to both the official Bill of Supply and a printable Artist dispatch packing slip.
 
 The local economy / studio pickup choices do not incur a paid API subscription. Shiprocket rates still require your existing Shiprocket account. Configure the exact company support and contact details in `lib/siteConfig.js` before issuing customer documents.
+
+
+## Version 6 updates
+
+- Shiprocket checkout now displays only live Shiprocket point-to-point courier serviceability quotes. Manual local-economy and studio-pickup pseudo-couriers have been removed.
+- Missing, null, or empty painting `weight_kg` values default to exactly 0.5 kg for rate calculation; positive stored weights are used as recorded. Courier options are sorted by ascending live Shiprocket price.
+- Added public `/artists` directory and `/artists/[id]` Artist portfolio pages, including circular `avatar_url` portraits, monogram fallbacks, biographies, studio location, available works with normal cart/checkout, and a sold-work archive.
+- Added the “Meet Our Artists” homepage showcase and “Our Artists” navigation link.
+- Added the Artiste soul / human-connection tagline to the homepage hero, Our Story, footer, and invoice footer.
+
+No database migration is required for these Version 6 changes. The public Artist pages use the existing `artists` and `paintings` tables and their existing approval fields.

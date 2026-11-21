@@ -161,12 +161,8 @@ export async function POST(request) {
         courier_id: courier.courier_company_id,
         courier_name: courier.courier_name,
         shipping_amount: money(courier.rate),
-        shipment_status: courier.delivery_mode === 'local_economy'
-          ? 'Local delivery selected'
-          : courier.delivery_mode === 'studio_pickup'
-            ? 'Studio pickup selected'
-            : 'Pending',
-        shipment_note: courier.description || null,
+        shipment_status: 'Pending',
+        shipment_note: null,
       });
     }
 
