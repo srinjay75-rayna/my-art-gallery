@@ -12,9 +12,14 @@ export async function GET() {
   if (!(await isAdminRequest())) return NextResponse.json({ error: 'Admin authentication required.' }, { status: 401 });
   try {
     const supabase = requireServiceRole();
-    const { data, error } = await supabase.from('paintings').select('*').order('created_at', { ascending: false });
-    if (error) throw error;
-    return NextResponse.json({ paintings: data || [] });
+    const paintings = [];
+    for (let start = 0; ; start += 1000) {
+      const { data, error } = await supabase.from('paintings').select('*').order('created_at', { ascending: false }).range(start, start + 999);
+      if (error) throw error;
+      paintings.push(...(data || []));
+      if (!data || data.length < 1000) break;
+    }
+    return NextResponse.json({ paintings });
   } catch (error) {
     return NextResponse.json({ error: error.message || 'Could not load paintings.' }, { status: 500 });
   }
@@ -53,7 +58,7 @@ export async function POST(request) {
     const { data, error } = await supabase.from('paintings').insert({
       title, medium, dimensions, price: numeric.price, length_cm: numeric.length_cm,
       breadth_cm: numeric.breadth_cm, height_cm: numeric.height_cm, weight_kg: numeric.weight_kg,
-      image_url: publicData.publicUrl, is_sold: false,
+      image_url: publicData.publicUrl, is_sold: false, is_approved: true, artist_id: null, artist_name: 'Artiste Studio',
     }).select('*').single();
     if (error) {
       await supabase.storage.from('paintings').remove([uploadedPath]);

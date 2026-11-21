@@ -16,9 +16,12 @@ export async function PATCH(request, { params }) {
   try {
     const { id } = await params;
     const body = await request.json();
-    if (typeof body.is_sold !== 'boolean') return NextResponse.json({ error: 'is_sold must be true or false.' }, { status: 400 });
+    if (typeof body.is_sold !== 'boolean' && typeof body.is_approved !== 'boolean') return NextResponse.json({ error: 'Provide is_sold or is_approved.' }, { status: 400 });
+    const update = {};
+    if (typeof body.is_sold === 'boolean') update.is_sold = body.is_sold;
+    if (typeof body.is_approved === 'boolean') update.is_approved = body.is_approved;
     const supabase = requireServiceRole();
-    const { data, error } = await supabase.from('paintings').update({ is_sold: body.is_sold }).eq('id', id).select('*').single();
+    const { data, error } = await supabase.from('paintings').update(update).eq('id', id).select('*').single();
     if (error) throw error;
     return NextResponse.json({ painting: data });
   } catch (error) {

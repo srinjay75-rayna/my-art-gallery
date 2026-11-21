@@ -1,123 +1,30 @@
 "use client";
-
-import { useEffect, useState } from 'react';
-
+import { useCallback, useEffect, useState } from 'react';
 const money = (v) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Number(v || 0));
-const emptyForm = { title: '', medium: '', dimensions: '', price: '', length_cm: '', breadth_cm: '', height_cm: '', weight_kg: '' };
-
+const blank = { title: '', medium: '', dimensions: '', price: '', weight_kg: '', length_cm: '', breadth_cm: '', height_cm: '' };
+const tabs = ['Paintings', 'Artists', 'Orders'];
 export default function AdminPage() {
-  const [password, setPassword] = useState('');
-  const [loggedIn, setLoggedIn] = useState(false);
-  const [paintings, setPaintings] = useState([]);
-  const [form, setForm] = useState(emptyForm);
-  const [photo, setPhoto] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState('');
-  const [error, setError] = useState('');
-
-  async function loadPaintings() {
-    const response = await fetch('/api/admin/paintings', { cache: 'no-store' });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Could not load paintings.');
-    setPaintings(data.paintings || []);
-  }
-
-  useEffect(() => {
-    let active = true;
-    fetch('/api/admin/paintings', { cache: 'no-store' }).then(async (response) => {
-      if (!response.ok) return;
-      const data = await response.json();
-      if (active) { setPaintings(data.paintings || []); setLoggedIn(true); }
-    }).catch(() => {});
-    return () => { active = false; };
-  }, []);
-
-  async function login(event) {
-    event.preventDefault(); setBusy(true); setError('');
-    try {
-      const response = await fetch('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Login failed.');
-      setLoggedIn(true); setPassword(''); await loadPaintings(); setNotice('You are signed in to the studio.');
-    } catch (err) { setError(err.message); }
-    finally { setBusy(false); }
-  }
-
-  async function logout() {
-    await fetch('/api/admin/logout', { method: 'POST' });
-    setLoggedIn(false); setPaintings([]); setNotice(''); setError('');
-  }
-
-  function updateForm(event) { setForm((prev) => ({ ...prev, [event.target.name]: event.target.value })); }
-
-  async function upload(event) {
-    event.preventDefault(); setBusy(true); setError(''); setNotice('');
-    try {
-      if (!photo) throw new Error('Please choose a painting photo.');
-      const body = new FormData();
-      Object.entries(form).forEach(([key, value]) => body.append(key, value));
-      body.append('photo', photo);
-      const response = await fetch('/api/admin/paintings', { method: 'POST', body });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Upload failed.');
-      setForm(emptyForm); setPhoto(null);
-      const input = document.getElementById('painting-photo'); if (input) input.value = '';
-      await loadPaintings(); setNotice('Artwork uploaded and added to the gallery.');
-    } catch (err) { setError(err.message); }
-    finally { setBusy(false); }
-  }
-
-  async function toggleSold(painting) {
-    setBusy(true); setError(''); setNotice('');
-    try {
-      const response = await fetch(`/api/admin/paintings/${painting.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_sold: !painting.is_sold }) });
-      const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Could not update artwork.');
-      await loadPaintings(); setNotice(`${painting.title} marked ${!painting.is_sold ? 'sold' : 'available'}.`);
-    } catch (err) { setError(err.message); }
-    finally { setBusy(false); }
-  }
-
-  async function removePainting(painting) {
-    if (!window.confirm(`Permanently delete “${painting.title}”?`)) return;
-    setBusy(true); setError(''); setNotice('');
-    try {
-      const response = await fetch(`/api/admin/paintings/${painting.id}`, { method: 'DELETE' });
-      const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Delete failed.');
-      await loadPaintings(); setNotice('Artwork deleted.');
-    } catch (err) { setError(err.message); }
-    finally { setBusy(false); }
-  }
-
-  return (
-    <main className="paper-grain min-h-screen px-4 py-8 sm:px-8">
-      <div className="mx-auto max-w-6xl">
-        <header className="mb-10 flex items-center justify-between"><a href="/" className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-full border border-clay/40 font-display text-xl text-clay">R</span><span><span className="block font-display text-2xl">rangrekha</span><span className="block text-[8px] uppercase tracking-[.25em] text-muted">Artist studio</span></span></a><a href="/" className="text-[10px] font-bold uppercase tracking-[.16em] text-clay">← View gallery</a></header>
-        {!loggedIn ? (
-          <section className="mx-auto max-w-md rounded-3xl border border-[#e5dccf] bg-[#fffdf8] p-8 shadow-soft sm:p-10"><p className="text-[10px] font-bold uppercase tracking-[.22em] text-clay">Private workspace</p><h1 className="mt-3 font-display text-4xl">Studio access</h1><p className="mt-3 text-sm leading-6 text-muted">Sign in to upload new work and manage availability in the public gallery.</p><form onSubmit={login} className="mt-8"><label className="label" htmlFor="admin-password">Admin password</label><input id="admin-password" type="password" className="field" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required/><button disabled={busy} className="btn-primary mt-5 w-full">{busy ? 'Signing in…' : 'Enter studio'} <span>↗</span></button></form>{error && <p className="mt-4 rounded-lg bg-[#f9e8e3] p-3 text-xs text-[#9a3d2c]">{error}</p>}</section>
-        ) : (
-          <>
-            <div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="text-[10px] font-bold uppercase tracking-[.22em] text-clay">Manage your collection</p><h1 className="mt-2 font-display text-5xl tracking-tight">The artist studio.</h1><p className="mt-2 text-sm text-muted">Upload a painting, update availability, or remove a work.</p></div><button onClick={logout} className="btn-secondary self-start sm:self-auto">Sign out</button></div>
-            {notice && <p className="mb-4 rounded-xl border border-[#cdddc9] bg-[#edf4e9] px-4 py-3 text-sm text-[#47684b]">{notice}</p>}
-            {error && <p className="mb-4 rounded-xl border border-[#e8c7bc] bg-[#f9e8e3] px-4 py-3 text-sm text-[#9a3d2c]">{error}</p>}
-            <div className="grid gap-8 lg:grid-cols-[.85fr_1.15fr]">
-              <section className="h-fit rounded-3xl border border-[#e5dccf] bg-[#fffdf8] p-6 shadow-soft sm:p-8"><h2 className="font-display text-3xl">Add a new work</h2><p className="mt-2 text-xs leading-5 text-muted">Use the exact packed parcel measurements for live courier pricing.</p><form onSubmit={upload} className="mt-6 grid gap-4">
-                <label><span className="label">Painting photo</span><input id="painting-photo" type="file" accept="image/jpeg,image/png,image/webp,image/avif" onChange={(e) => setPhoto(e.target.files?.[0] || null)} required className="block w-full text-xs text-muted file:mr-3 file:rounded-full file:border-0 file:bg-[#eee7dc] file:px-4 file:py-3 file:text-[10px] file:font-bold file:uppercase file:tracking-wider file:text-ink"/></label>
-                <label><span className="label">Title</span><input name="title" className="field" value={form.title} onChange={updateForm} required maxLength={120} placeholder="e.g. The Monsoon Courtyard"/></label>
-                <label><span className="label">Medium</span><input name="medium" className="field" value={form.medium} onChange={updateForm} required maxLength={120} placeholder="e.g. Acrylic on canvas"/></label>
-                <label><span className="label">Canvas size / dimensions</span><input name="dimensions" className="field" value={form.dimensions} onChange={updateForm} required maxLength={100} placeholder="e.g. 24 × 36 in / 61 × 91 cm"/></label>
-                <label><span className="label">Price (INR)</span><input name="price" type="number" min="1" step="0.01" className="field" value={form.price} onChange={updateForm} required placeholder="12000"/></label>
-                <div className="grid grid-cols-3 gap-3"><label><span className="label">Length (cm)</span><input name="length_cm" type="number" min="1" step="0.1" className="field" value={form.length_cm} onChange={updateForm} required placeholder="70"/></label><label><span className="label">Breadth (cm)</span><input name="breadth_cm" type="number" min="1" step="0.1" className="field" value={form.breadth_cm} onChange={updateForm} required placeholder="10"/></label><label><span className="label">Height (cm)</span><input name="height_cm" type="number" min="1" step="0.1" className="field" value={form.height_cm} onChange={updateForm} required placeholder="90"/></label></div>
-                <label><span className="label">Packed weight (kg)</span><input name="weight_kg" type="number" min="0.01" step="0.01" className="field" value={form.weight_kg} onChange={updateForm} required placeholder="3.5"/></label>
-                <button disabled={busy} className="btn-primary mt-2 w-full">{busy ? 'Uploading…' : 'Upload artwork'} <span>↗</span></button>
-              </form></section>
-              <section><div className="mb-4 flex items-end justify-between"><div><h2 className="font-display text-3xl">All artworks</h2><p className="mt-1 text-xs text-muted">{paintings.length} {paintings.length === 1 ? 'work' : 'works'} in your database</p></div><button onClick={() => loadPaintings().catch((e) => setError(e.message))} className="text-[10px] font-bold uppercase tracking-[.13em] text-clay underline underline-offset-4">Refresh</button></div>
-                {paintings.length === 0 ? <div className="rounded-2xl border border-dashed border-[#cfc2b1] p-10 text-center text-sm text-muted">No paintings yet. Upload the first one from the form.</div> : <div className="grid gap-3">{paintings.map((painting) => <article key={painting.id} className="flex gap-4 rounded-2xl border border-[#e5dccf] bg-[#fffdf8] p-3 shadow-[0_5px_22px_rgba(55,42,30,.035)]"><img src={painting.image_url} alt={painting.title} className="h-28 w-24 rounded-xl bg-[#e8dfd3] object-cover"/><div className="min-w-0 flex-1 py-1"><div className="flex flex-wrap items-center gap-2"><h3 className="font-display text-xl">{painting.title}</h3><span className={`rounded-full px-2.5 py-1 text-[8px] font-bold uppercase tracking-[.12em] ${painting.is_sold ? 'bg-[#eee1dc] text-[#984b37]' : 'bg-[#e7eee3] text-[#4d6d4d]'}`}>{painting.is_sold ? 'Sold' : 'Available'}</span></div><p className="mt-1 truncate text-[10px] uppercase tracking-[.1em] text-muted">{painting.medium} · {painting.dimensions}</p><p className="mt-2 text-sm font-semibold text-clay">{money(painting.price)}</p><div className="mt-3 flex flex-wrap gap-2"><button disabled={busy} onClick={() => toggleSold(painting)} className="rounded-full border border-[#d9cfc1] px-3 py-1.5 text-[9px] font-bold uppercase tracking-wider text-[#51483f]">Mark {painting.is_sold ? 'available' : 'sold'}</button><button disabled={busy} onClick={() => removePainting(painting)} className="rounded-full border border-[#e4c7bd] px-3 py-1.5 text-[9px] font-bold uppercase tracking-wider text-[#a24d36]">Delete</button></div></div></article>)}</div>}
-              </section>
-            </div>
-          </>
-        )}
-        <p className="mt-12 text-center text-[9px] uppercase tracking-[.2em] text-[#9c9184]">Rangrekha · Private artist studio</p>
-      </div>
-    </main>
-  );
+  const [authed, setAuthed] = useState(false); const [password, setPassword] = useState('');
+  const [tab, setTab] = useState('Paintings'); const [paintings, setPaintings] = useState([]); const [artists, setArtists] = useState([]); const [orders, setOrders] = useState([]);
+  const [form, setForm] = useState(blank); const [photo, setPhoto] = useState(null); const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
+  const request = async (url, options = {}) => { const res = await fetch(url, options); const data = await res.json().catch(() => ({})); if (!res.ok) throw new Error(data.error || 'Request failed.'); return data; };
+  const load = useCallback(async () => { const [p, o] = await Promise.all([request('/api/admin/paintings'), request('/api/admin/overview')]); setPaintings(p.paintings || []); setArtists(o.artists || []); setOrders(o.orders || []); }, []);
+  useEffect(() => { fetch('/api/admin/paintings').then(r => { if (r.ok) setAuthed(true); }).catch(() => {}); }, []);
+  useEffect(() => { if (authed) load().catch(e => setError(e.message)); }, [authed, load]);
+  async function login(e) { e.preventDefault(); setBusy(true); setError(''); try { await request('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) }); setAuthed(true); setPassword(''); } catch (e) { setError(e.message); } finally { setBusy(false); } }
+  async function logout() { await fetch('/api/admin/logout', { method: 'POST' }); setAuthed(false); setPaintings([]); setArtists([]); setOrders([]); }
+  function update(e) { setForm({ ...form, [e.target.name]: e.target.value }); }
+  async function upload(e) { e.preventDefault(); if (!photo) return setError('Choose a painting photo.'); setBusy(true); setError(''); setNotice(''); try { const data = new FormData(); Object.entries(form).forEach(([k,v]) => data.append(k,v)); data.append('photo', photo); await request('/api/admin/paintings', { method: 'POST', body: data }); setForm(blank); setPhoto(null); document.getElementById('owner-photo').value = ''; setNotice('Artwork added to the public gallery.'); await load(); } catch(e) { setError(e.message); } finally { setBusy(false); } }
+  async function updatePainting(p, patch) { setBusy(true); setError(''); try { await request(`/api/admin/paintings/${p.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) }); await load(); } catch(e) { setError(e.message); } finally { setBusy(false); } }
+  async function deletePainting(p) { if (!confirm(`Delete “${p.title}”?`)) return; setBusy(true); try { await request(`/api/admin/paintings/${p.id}`, { method: 'DELETE' }); await load(); } catch(e) { setError(e.message); } finally { setBusy(false); } }
+  async function updateArtist(a, patch) { setBusy(true); try { await request(`/api/admin/artists/${a.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) }); await load(); } catch(e) { setError(e.message); } finally { setBusy(false); } }
+  async function deleteArtist(a) { if (!confirm(`Delete artist ${a.artist_name} and their artworks?`)) return; setBusy(true); try { await request(`/api/admin/artists/${a.id}`, { method: 'DELETE' }); await load(); } catch(e) { setError(e.message); } finally { setBusy(false); } }
+  if (!authed) return <main className="paper-grain min-h-screen px-5 py-16"><div className="mx-auto max-w-md rounded-3xl border border-[#e5dccf] bg-[#fffdf8] p-8 shadow-soft"><a href="/" className="mb-8 flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-full border border-clay/40 font-display text-xl text-clay">A</span><span className="font-display text-2xl">Artiste</span></a><p className="eyebrow">Owner access</p><h1 className="mt-2 font-display text-4xl">Super-admin login</h1><form onSubmit={login} className="mt-7 grid gap-4"><input type="password" className="field" placeholder="Admin password" value={password} onChange={e=>setPassword(e.target.value)} required/><button disabled={busy} className="btn-primary">{busy?'Signing in…':'Enter dashboard'} ↗</button></form>{error&&<p className="mt-4 text-sm text-red-700">{error}</p>}</div></main>;
+  return <main className="paper-grain min-h-screen px-5 py-8 md:px-10"><div className="mx-auto max-w-7xl"><header className="mb-9 flex flex-wrap items-center justify-between gap-4"><a href="/" className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-full border border-clay/40 font-display text-xl text-clay">A</span><span><b className="block font-display text-2xl">Artiste</b><small className="eyebrow">Owner control centre</small></span></a><div className="flex items-center gap-4"><button onClick={logout} className="text-xs font-bold uppercase tracking-wider text-clay">Sign out</button><a href="/" className="text-xs font-bold uppercase tracking-wider text-clay">← View gallery</a></div></header>
+    <div className="mb-7 flex flex-wrap gap-2">{tabs.map(t=><button key={t} onClick={()=>setTab(t)} className={`rounded-full px-5 py-2 text-xs font-bold uppercase tracking-wider ${tab===t?'bg-ink text-white':'border border-[#d9cfc1] text-ink'}`}>{t}</button>)}<button onClick={()=>load().catch(e=>setError(e.message))} className="ml-auto rounded-full border border-[#d9cfc1] px-4 py-2 text-xs">Refresh ↻</button></div>
+    {notice&&<p className="mb-4 rounded-xl bg-green-50 p-3 text-sm text-green-800">{notice}</p>}{error&&<p className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+    {tab==='Paintings'&&<div className="grid gap-8 lg:grid-cols-[.85fr_1.15fr]"><section className="h-fit rounded-3xl border border-[#e5dccf] bg-[#fffdf8] p-6 shadow-soft"><h2 className="font-display text-3xl">Add owner artwork</h2><form onSubmit={upload} className="mt-5 grid gap-3"><label className="label">Painting photo<input id="owner-photo" type="file" accept="image/jpeg,image/png,image/webp,image/avif" required onChange={e=>setPhoto(e.target.files?.[0]||null)} className="mt-2 block w-full text-xs"/></label>{[['title','Title'],['medium','Medium'],['dimensions','Canvas size'],['price','Price (INR)'],['weight_kg','Packed weight (kg)']].map(([n,l])=><label key={n} className="label">{l}<input name={n} value={form[n]} onChange={update} required className="field mt-1" type={['price','weight_kg'].includes(n)?'number':'text'} step={['price','weight_kg'].includes(n)?'0.01':undefined} min={['price','weight_kg'].includes(n)?'0.01':undefined}/></label>)}<div className="grid grid-cols-3 gap-2">{['length_cm','breadth_cm','height_cm'].map(n=><label key={n} className="label">{n.replace('_cm','')} cm<input name={n} value={form[n]} onChange={update} required type="number" min="0.1" step="0.1" className="field mt-1"/></label>)}</div><button disabled={busy} className="btn-primary">{busy?'Saving…':'Publish artwork'} ↗</button></form></section><section><h2 className="mb-4 font-display text-3xl">All paintings <span className="text-muted">({paintings.length})</span></h2><div className="grid gap-3">{paintings.map(p=><article key={p.id} className="flex gap-3 rounded-2xl border border-[#e5dccf] bg-[#fffdf8] p-3"><img src={p.image_url} alt={p.title} className="h-24 w-20 rounded-xl object-cover"/><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><b className="font-display text-xl">{p.title}</b><span className="pill">{p.is_sold?'Sold':'Available'}</span><span className="pill">{p.is_approved?'Approved':'Pending'}</span></div><p className="text-xs text-muted">Created by {p.artist_name||'Artiste Studio'} · {money(p.price)}</p><div className="mt-2 flex flex-wrap gap-2"><button className="action-btn" disabled={busy} onClick={()=>updatePainting(p,{is_sold:!p.is_sold})}>Mark {p.is_sold?'available':'sold'}</button><button className="action-btn" disabled={busy} onClick={()=>updatePainting(p,{is_approved:!p.is_approved})}>{p.is_approved?'Unpublish':'Approve'}</button><button className="action-btn danger" disabled={busy} onClick={()=>deletePainting(p)}>Delete</button></div></div></article>)}</div></section></div>}
+    {tab==='Artists'&&<section><h2 className="mb-4 font-display text-3xl">Artist applications <span className="text-muted">({artists.length})</span></h2><div className="grid gap-4 md:grid-cols-2">{artists.map(a=><article key={a.id} className="rounded-2xl border border-[#e5dccf] bg-[#fffdf8] p-5"><div className="flex gap-4"><img src={a.profile_photo_url} alt={a.artist_name} className="h-20 w-20 rounded-full object-cover"/><div><h3 className="font-display text-2xl">{a.artist_name}</h3><p className="text-xs text-muted">{a.city} · {a.is_approved?'Approved':'Awaiting approval'}</p><p className="mt-2 text-sm">{a.bio}</p></div></div><div className="mt-4 flex gap-2"><button disabled={busy} className="action-btn" onClick={()=>updateArtist(a,{is_approved:!a.is_approved})}>{a.is_approved?'Suspend':'Approve artist'}</button><button disabled={busy} className="action-btn danger" onClick={()=>deleteArtist(a)}>Delete artist</button></div></article>)}</div>{!artists.length&&<p className="rounded-2xl border border-dashed p-10 text-center text-muted">No artist profiles yet.</p>}</section>}
+    {tab==='Orders'&&<section><h2 className="mb-4 font-display text-3xl">Customer orders <span className="text-muted">({orders.length})</span></h2><div className="overflow-x-auto rounded-2xl border border-[#e5dccf] bg-[#fffdf8]"><table className="w-full min-w-[900px] text-left text-sm"><thead className="bg-[#f0e9df] text-[10px] uppercase tracking-wider"><tr>{['Order','Customer','Items','Amount','Courier / Tracking','Status','Date'].map(x=><th className="p-4" key={x}>{x}</th>)}</tr></thead><tbody>{orders.map(o=><tr key={o.id} className="border-t border-[#eee6db]"><td className="p-4 font-semibold">{o.merchant_order_ref}</td><td className="p-4">{o.buyer_name}<br/><small className="text-muted">{o.buyer_email}</small></td><td className="p-4">{Array.isArray(o.items)?o.items.length:1} artwork(s)<br/><small className="text-muted">{o.painting_title}</small></td><td className="p-4">{money(o.amount_paise/100)}</td><td className="p-4">{o.courier_name||'—'}<br/><small className="text-muted">{o.shiprocket_awb_code||o.shiprocket_shipment_id||'Tracking pending'}</small></td><td className="p-4">{o.status}</td><td className="p-4">{new Date(o.created_at).toLocaleDateString('en-IN')}</td></tr>)}</tbody></table></div></section>}
+    <p className="mt-12 text-center text-[9px] uppercase tracking-[.2em] text-muted">Artiste · Owner dashboard</p></div></main>;
 }

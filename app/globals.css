@@ -26,3 +26,15 @@ button, input, select, textarea { font: inherit; }
 .btn-primary:disabled { opacity: .5; cursor: not-allowed; transform: none; }
 .btn-secondary { display: inline-flex; align-items: center; justify-content: center; border: 1px solid #d9cfc1; color: #51483f; border-radius: 999px; padding: 11px 18px; font-size: 13px; font-weight: 700; }
 .modal-backdrop { background: rgba(27, 23, 20, .58); backdrop-filter: blur(5px); }
+
+
+/* Artiste v2 shared dashboard controls */
+.eyebrow { font-size: 9px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase; color: #92735f; }
+.label { display: block; font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #75695e; }
+.field { width: 100%; border: 1px solid #ded5c9; border-radius: 12px; background: #fffefa; padding: 12px 14px; color: #28231f; font-size: 13px; outline: none; }
+.field:focus { border-color: #a24d36; box-shadow: 0 0 0 3px rgba(162,77,54,.09); }
+.action-btn { border: 1px solid #d9cfc1; border-radius: 999px; padding: 7px 12px; font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #51483f; }
+.action-btn.danger { border-color: #e4c7bd; color: #a24d36; }
+.pill { display: inline-flex; border-radius: 999px; background: #eee7dc; padding: 4px 9px; font-size: 8px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: #6b5b4d; }
+.btn-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid #a24d36; border-radius: 999px; background: #fffaf3; padding: 13px 20px; font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #a24d36; transition: .2s; }
+.btn-secondary:hover { background: #f7eee6; }
