@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from 'react';
+import { CheckCircle2, LoaderCircle, MapPin, PencilLine } from 'lucide-react';
 import { INDIAN_STATES_UTS, normaliseIndianPhone } from '@/lib/india-address';
 
 const states = INDIAN_STATES_UTS;
@@ -68,10 +69,10 @@ export default function IndianAddressForm({ value, onChange, showContact = true,
     <label className="label sm:col-span-2">Landmark<input className="field mt-1" value={value.landmark || ''} onChange={(e) => update('landmark', e.target.value)} required maxLength={160} placeholder="Near post office, metro station, school…" /></label>
     <label className="label">6-digit PIN code<input className="field mt-1" inputMode="numeric" autoComplete="postal-code" required pattern="[0-9]{6}" maxLength={6} value={pincode} onChange={(e) => update('pincode', e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="700047" /></label>
     <div className="label flex items-end pb-3 normal-case tracking-normal">
-      {lookup === 'looking' && <span className="text-muted">Looking up PIN code…</span>}
-      {lookup === 'success' && <span className="text-green-700">PIN details found</span>}
-      {lookup === 'manual' && <span className="text-amber-700">Manual entry available</span>}
-      {!lookup && <span className="text-muted">Area suggestions appear after 6 digits</span>}
+      {lookup === 'looking' && <span className="inline-flex items-center gap-1 text-muted"><LoaderCircle size={13} className="animate-spin"/> Looking up PIN code…</span>}
+      {lookup === 'success' && <span className="inline-flex items-center gap-1 text-green-700"><CheckCircle2 size={13}/> PIN details found</span>}
+      {lookup === 'manual' && <span className="inline-flex items-center gap-1 text-amber-700"><PencilLine size={13}/> Manual entry available</span>}
+      {!lookup && <span className="inline-flex items-center gap-1 text-muted"><MapPin size={13}/> Area suggestions appear after 6 digits</span>}
     </div>
     {areas.length > 0 ? <label className="label">Locality / Area<select className="field mt-1" required value={value.locality || ''} onChange={(e) => update('locality', e.target.value)}><option value="">Choose locality / area</option>{areas.map((area) => <option key={area} value={area}>{area}</option>)}</select></label> : <label className="label">Locality / Area<input className="field mt-1" required value={value.locality || ''} onChange={(e) => update('locality', e.target.value)} placeholder="Area / neighbourhood" /></label>}
     <label className="label">{cityLabel}<input className="field mt-1" required value={value.city || ''} onChange={(e) => update('city', e.target.value)} placeholder="City or district" /></label>

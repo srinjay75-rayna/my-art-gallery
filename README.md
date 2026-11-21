@@ -1,143 +1,189 @@
-# Artiste — Indian Art Marketplace
+# Artiste v4 — Original Indian Art Marketplace
 
-A Next.js App Router marketplace with the Artiste brand identity, warm editorial gallery styling, Supabase Email OTP accounts, Customer checkout, independent Artist onboarding, private payout details, Indian PIN-code address assistance, Shiprocket live courier rates, Razorpay payment collection, and an owner-only operational dashboard.
+Artiste v4 upgrades the existing Next.js App Router + JavaScript + Tailwind + Supabase + Shiprocket + Razorpay project while retaining the Artiste brand, A monogram, warm editorial gallery styling, existing API integrations, and the additive v3 database migration.
 
-## Included pages
+## V4 changes
 
-- `/` — public gallery for browsing artworks without login, Artist attribution and filtering, artwork details, cart and Buy Now. A creator invitation links to `/artist`; the public site does **not** disclose platform fees or Artist payout percentages.
-- `/account` — Customer six-digit Email OTP authentication, saved +91 mobile and shipping details, My Orders and per-origin courier / AWB tracking.
-- `/artist` — Artist six-digit Email OTP authentication, profile and portfolio photo, complete studio pickup address, IFSC-verified bank / optional UPI details, own artwork management, private 98% / 2% earnings calculator, and payout ledger.
-- `/admin` — server-password-protected owner dashboard. The server validates the HttpOnly admin cookie before it renders the dashboard bundle; all Artists, approval and artwork moderation, Customer orders, dispatch origins, verified payout details, and Mark Payout Paid actions stay behind that gate.
-- `database/schema.sql` — additive, re-runnable migration designed to preserve the existing Artiste paintings, profiles, Artists and orders while adding private dispatch origins, verified payout accounts, shipment groups, payout ledger rows, RLS and helper RPCs.
+- Added `lucide-react` icons throughout the public Gallery, Customer account, Artist Portal, onboarding pages, address forms and private Studio Vault.
+- Public navigation contains Gallery, Our Story, For Cuṣtomers, For Artiṣte and Cart. No Admin / Host / Owner link is published.
+- The owner dashboard moved to the unlinked `/studio-vault-owner` route. `/admin` redirects to `/`.
+- Customer and Artist access pages now show two tabs: **Existing User — Log In** and **New User — Sign Up**.
+- Returning users enter only their email and receive a Supabase magic sign-in link. New users enter only name, email and +91 mobile number; the verification email takes them to the dedicated onboarding page.
+- New Customers complete `/account/onboarding` with shipping street address, landmark, PIN lookup, locality, city and State / UT.
+- New Artists complete `/artist/onboarding` with biography, pickup address, PIN lookup, Shiprocket pickup-location name, IFSC-verified bank details and optional UPI ID. Profile photo remains optional.
+- Incomplete Customer and Artist profiles are redirected to the relevant onboarding route. The Cart preserves a pending Add to Cart / Buy Now intent across the email-verification round trip.
+- Existing V3 capabilities remain: public browsing, Artist attribution, customer-safe gallery, verified passwordless-email account APIs, artist-only commission calculator and earnings ledger, multi-Artist courier quotations, one Razorpay payment, order tracking, server-verified payment capture, encrypted Artist bank account numbers, and owner payout actions.
 
-## Stack and runtime
+
+## Final polish included in this archive
+
+- `lib/siteConfig.js` is the single editable source for the public phone number, WhatsApp number, support email, Instagram URL and founders credit. Add a co-founder by extending `foundersCredit` in that file.
+- A slim Call Us / WhatsApp Support contact bar appears at the top of every page.
+- A consistent editorial footer appears at the bottom of every page with support email, phone, WhatsApp, Instagram, customer / artist links, Shipping & Returns and the founders credit.
+- `/shipping-returns` explains Pan-India Shiprocket dispatch (generally within 2–4 business days), insured courier handling subject to carrier terms, protective packaging, live tracking, 48-hour continuous-unboxing-video transit-damage reporting and the final-sale policy for original artworks.
+- The floating Artiste Concierge is available throughout the site. Its quick topics and keyword replies cover delivery, packaging / transit damage, Razorpay payment methods, Artist applications and order tracking. Unresolved questions can be handed off to WhatsApp or email support.
+
+To update public business details, edit only `lib/siteConfig.js`; no page or component edits are required. The founders credit is currently `Concept & Vision by Srinjay R Bhattacharjee`. For example, append ` & Co-Founder Name` when ready.
+
+## Requirements
 
 - Node.js 20.9 or newer
-- Next.js App Router, JavaScript and Tailwind CSS
-- Supabase Auth, Postgres and Storage
-- Shiprocket API user credentials and registered pickup location(s)
-- Razorpay API keys and a webhook configured for `payment.captured`
+- A Supabase project
+- A Shiprocket account with each Artist pickup location configured
+- Razorpay credentials (test keys for initial testing)
 
-Use Razorpay Test Mode until you have tested the complete payment, order, dispatch, cancellation and refund paths. No source-code project can guarantee production readiness without running against your own live service accounts and validating your operational policies.
+## 1. Install
 
-## 1. Supabase setup
-
-1. Back up your Supabase project before changing its schema.
-2. Open Supabase → SQL Editor and run the complete `database/schema.sql` file. It uses `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`; it does not drop existing paintings, Artists, profiles or orders. Existing legacy painting pickup PINs are copied into the private `painting_shipping_origins` table before the public painting rows are scrubbed.
-3. Copy the Project URL, anon key and service-role key from Supabase Project Settings → API.
-4. Confirm the public Storage buckets `paintings` and `artist-profiles` exist. The SQL creates them and allows public image reads. Upload and deletion operations run through JWT-validated server routes with the service-role key.
-5. In Authentication → Providers → Email, enable Email authentication.
-6. In Authentication → Email Templates, configure the email template to show the numeric OTP token, for example:
-
-   ```html
-   <h2>Your Artiste verification code</h2>
-   <p>Enter this six-digit code to verify your email:</p>
-   <h1>{{ .Token }}</h1>
-   <p>This code is for your Artiste account. Do not share it.</p>
-   ```
-
-7. Set the Supabase Site URL and allowed redirect URLs for local and production domains. Configure email delivery, CAPTCHA / abuse protections and OTP rate limits appropriate to your launch.
-
-## 2. Environment variables
-
-Copy `.env.example` to `.env.local` and set every secret server-side.
-
-| Variable | Purpose |
-| --- | --- |
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Browser-safe Supabase anon key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-only privileged key for database and Storage operations |
-| `ADMIN_PASSWORD` | Owner / super-admin password; server only |
-| `PAYOUT_ENCRYPTION_KEY` | Base64-encoded 32-byte AES-256-GCM key used to encrypt Artist bank account numbers |
-| `SHIPROCKET_EMAIL` | Shiprocket API user email |
-| `SHIPROCKET_PASSWORD` | Shiprocket API user password |
-| `PICKUP_PINCODE` | Six-digit fallback PIN for owner-curated Artiste Studio works and old records |
-| `SHIPROCKET_PICKUP_LOCATION` | Exact registered Shiprocket pickup-location name; defaults to `Primary` |
-| `RAZORPAY_KEY_ID` | Razorpay Key ID |
-| `RAZORPAY_KEY_SECRET` | Server-only Razorpay API secret |
-| `RAZORPAY_WEBHOOK_SECRET` | Separate server-only secret configured for webhook signature verification |
-
-Generate `PAYOUT_ENCRYPTION_KEY` once with:
+Extract the archive and run:
 
 ```bash
-openssl rand -base64 32
-```
-
-Keep this key stable and backed up securely. Changing or losing it makes previously encrypted Artist bank account numbers undecryptable. Do not commit `.env.local` to source control. Do not prefix any server secret with `NEXT_PUBLIC_`.
-
-## 3. Indian address assistance and IFSC verification
-
-Customer shipping and Artist pickup forms query the free India Post PIN directory at `https://api.postalpincode.in/pincode/{PIN}` after six digits are entered. Returned post office names populate the locality / area dropdown; District and State are prefilled. When the service is unavailable or the PIN cannot be found, the form falls back to manual locality, city and State / UT entry. The form contains all 28 Indian States and 8 Union Territories, plus a required landmark, full street address and +91 mobile number.
-
-Artist payout setup validates the 11-character IFSC format and checks the code server-side against the public Razorpay IFSC directory at `https://ifsc.razorpay.com/{IFSC}`. Bank name and branch are displayed only after the IFSC response is matched to the requested code. IFSC lookup does not independently verify ownership of the bank account; account ownership / penny-drop validation must be performed separately through an appropriate regulated provider if required for your business.
-
-## 4. Artist pickup origins and multi-Artist Shiprocket orders
-
-Each Artist profile stores its pickup contact, phone, full studio address, landmark, locality, city, State, PIN and exact registered Shiprocket pickup-location name. Individual artwork rows keep the public pickup PIN blank. Private pickup data is read only by server-side service-role routes.
-
-At checkout the server groups the basket by Artist / studio pickup origin. For each origin it sums packed weights, uses the largest length, breadth and height across the group, and requests live Shiprocket courier options using that origin PIN and the Customer delivery PIN. The Customer selects one courier for each origin group. Razorpay collects one combined payment; after capture Artiste creates one Shiprocket order for each pickup origin. This means a mixed-Artist basket may arrive in multiple parcels and may have separate tracking IDs.
-
-Every Artist pickup location must already exist in the Shiprocket account, and the pickup-location name entered in the Artist portal must exactly match the name registered there. The owner-curated Artiste Studio fallback uses `PICKUP_PINCODE` and `SHIPROCKET_PICKUP_LOCATION`. Newly uploaded owner artworks require a valid fallback PIN.
-
-## 5. Private Artist fee and payout accounting
-
-The public homepage and Customer screens do not display platform commission or Artist payout percentages. After verified sign-in, the Artist Portal shows the private earnings calculator and ledger. The accounting model applies the 2% platform fee to artwork sale value only; shipping is collected separately and is not included in the fee base. The 98% Artist payout is grouped per Artist per order in `artist_payouts`; the parent order stores combined totals.
-
-Artist bank account numbers are encrypted using AES-256-GCM before persistence and masked on the Artist side. Only the owner-authenticated Admin API can decrypt the stored account number for dispatch / payout operations. The owner dashboard also shows bank name, branch, verified IFSC and optional UPI. Marking a payout Paid only updates the ledger after the owner confirms that a real bank / UPI transfer has been completed; this project does not automatically move funds to bank accounts.
-
-## 6. Authentication, privacy and payment flow
-
-- Artists and Customers use `signInWithOtp` and `verifyOtp` with a six-digit email code. Protected APIs validate the Supabase JWT and its signed Auth Methods Reference; password-only or unverified sessions are rejected.
-- Public browsing and Artist attribution are open. Adding an artwork to the cart or buying it prompts for Customer OTP login and a complete saved shipping address.
-- Customer profile fields and order rows are protected by Row Level Security. Artists can read / manage only their own Artist profile, artworks, payout account summary and payout ledger. Sensitive pickup-origin, shipment, and bank records have no browser-readable RLS policies and are accessed through server routes only.
-- All writes that require elevated privileges run on the server after validating the caller's Auth identity. The service-role key is never sent to the browser. Customer-facing APIs return explicit safe projections and never return commission or Artist payout fields; payment gateway metadata also omits those private amounts.
-- Razorpay payment signatures are verified server-side, then the payment is checked against the Razorpay API for order ID, INR currency, exact amount and captured status. The `payment.captured` webhook validates the raw-body HMAC signature and can complete the order if the Customer closes the Checkout page.
-- A database function atomically confirms payment, reserves each painting and marks the parent order `Paid`. The server then upserts one Artist ledger row per Artist and processes each Shiprocket shipment group. A payment remains Paid when fulfilment needs manual attention; shipment status and notes are tracked separately. Captured payments with a stock conflict require a refund / manual reconciliation workflow.
-- The owner dashboard is protected by the server-only `ADMIN_PASSWORD` and an HttpOnly, SameSite-protected session cookie.
-
-## 7. Run locally
-
-```bash
-cp .env.example .env.local
 npm install
+cp .env.example .env.local
 npm run dev
 ```
 
 Open `http://localhost:3000`.
 
-Production build / run:
+## 2. Environment variables
+
+Fill `.env.local` with the values below. Never commit `.env.local` or expose server secrets with a `NEXT_PUBLIC_` prefix.
+
+| Variable | Purpose |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Browser-safe Supabase anon key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only privileged key for database and Storage operations |
+| `ADMIN_PASSWORD` | Long, unique owner password for `/studio-vault-owner` |
+| `PAYOUT_ENCRYPTION_KEY` | Base64-encoded 32-byte AES-256-GCM key for Artist bank account numbers |
+| `SHIPROCKET_EMAIL` | Shiprocket API email |
+| `SHIPROCKET_PASSWORD` | Shiprocket API password |
+| `PICKUP_PINCODE` | Owner-curated Artiste Studio fallback PIN |
+| `SHIPROCKET_PICKUP_LOCATION` | Default Shiprocket pickup-location name (for example `Primary`) |
+| `RAZORPAY_KEY_ID` | Razorpay Key ID |
+| `RAZORPAY_KEY_SECRET` | Server-only Razorpay API secret |
+| `RAZORPAY_WEBHOOK_SECRET` | Separate secret configured for Razorpay webhook signature validation |
+
+Generate the encryption key once and keep a secure backup:
 
 ```bash
-npm run build
-npm run start
+openssl rand -base64 32
 ```
 
-Deploy on a Node.js-compatible Next.js host. Configure all environment variables in the host's secret manager, including `PAYOUT_ENCRYPTION_KEY` and `RAZORPAY_WEBHOOK_SECRET`.
+Do not regenerate this key after Artist bank accounts have been encrypted. Losing it makes existing encrypted account numbers undecryptable.
 
-## 8. Launch verification checklist
+## 3. Supabase database and Storage
 
-1. Take a backup; run `database/schema.sql` in Supabase; confirm the pre-existing artworks and orders still exist and the legacy pickup PINs were migrated to `painting_shipping_origins`.
-2. Configure the Supabase OTP email template using `{{ .Token }}`. Test Customer and Artist signup, sign-in, expired codes, refresh, sign-out and ownership boundaries.
-3. Test PIN suggestions, manual fallback, all State / UT options, landmark, full street address and +91 phone validation.
-4. Generate and back up the payout encryption key. Test IFSC success / invalid code / service outage. Confirm Artist screens show only a masked account number and owner-only pages show the decrypted value.
-5. Register each Artist's Shiprocket pickup location with the exact saved name. Test same-origin and mixed-origin baskets, one selected courier per origin, live rate changes, package aggregation and multiple tracking references.
-6. Test Razorpay in Test Mode: success, declined payment, callback retry, webhook capture when the checkout tab closes, duplicate webhook delivery, exact amount mismatch, and a sold-out stock conflict with a refund review.
-7. Configure the Razorpay webhook URL `https://YOUR_DOMAIN/api/razorpay/webhook`, a separate webhook secret and the `payment.captured` event. Test the endpoint using Razorpay's webhook test facility.
-8. Test `/account` order lookup by `user_id` and legacy email, shipment status, and privacy boundaries. Test the owner payout action with an actual controlled transfer before marking an Artist paid.
-9. Finalize Artist agreements, refund and cancellation rules, privacy notice, Terms, invoices, tax treatment, payout timelines, shipping liability and customer support processes before launch.
+1. Back up the Supabase database before applying schema changes.
+2. Open Supabase SQL Editor and run `database/schema.sql`.
+3. The schema is additive / rerunnable for the current V3 data model. It uses `create table if not exists` and `alter table ... add column if not exists` where applicable, preserves existing paintings and orders, keeps legacy order columns for compatibility, and moves private pickup-origin data into the restricted shipping-origin table.
+4. Ensure public Storage buckets `paintings` and `artist-profiles` exist. The SQL creates them if missing. Public reads apply only to artwork/profile images; file writes are performed by server-side APIs.
+5. Keep the Supabase service-role key on the server only. Never use it in browser code.
 
-## API routes
+The RLS policies intentionally do not provide direct browser access to Customer orders, shipment records, payout records or private Artist pickup origins. Protected server API routes verify the Supabase JWT and use the service-role key for elevated operations. `GRANT ALL` does not override RLS.
+
+## 4. Supabase email links and Auth URLs
+
+The V4 UI uses Supabase `signInWithOtp` with email magic-link redirects:
+
+- Customer login: `https://YOUR_DOMAIN/account`
+- Customer signup: `https://YOUR_DOMAIN/account/onboarding`
+- Artist login: `https://YOUR_DOMAIN/artist`
+- Artist signup: `https://YOUR_DOMAIN/artist/onboarding`
+
+In Supabase Authentication settings:
+
+1. Enable Email provider / passwordless email sign-in.
+2. Set the Site URL to your production origin.
+3. Add the four URLs above, plus the corresponding `http://localhost:3000/...` URLs, to Additional Redirect URLs.
+4. Configure the Email / Magic Link template to use the Supabase confirmation URL, for example:
+
+```html
+<h2>Your Artiste sign-in link</h2>
+<p>Use the secure link below to verify your email and continue.</p>
+<p><a href="{{ .ConfirmationURL }}">Verify email and continue to Artiste</a></p>
+<p>If you did not request this link, you can ignore this email.</p>
+```
+
+Use a trusted production email provider, configure Supabase email rate limits / CAPTCHA / abuse controls, and test expired or reused links. Supabase's callback handling is enabled by the browser client (`detectSessionInUrl: true`). The app accepts only a signed, verified passwordless Supabase session on protected Customer / Artist API routes.
+
+## 5. Customer sign-in and checkout
+
+- Gallery browsing, details, Artist attribution and Artist filtering are public.
+- Add to Cart / Buy Now opens the Customer login / signup tabs when no valid session exists.
+- The cart stores the pending artwork intent across the email verification redirect. Once the Customer profile is complete, the intent resumes in the Cart drawer.
+- A Customer must have a verified email, +91 phone number, full street address, landmark, locality, city, State / UT and a six-digit delivery PIN before checkout.
+- The free India Post lookup uses `https://api.postalpincode.in/pincode/{PIN}` to suggest post-office localities and populate District / State. If offline, users can enter the locality, city and State / UT manually.
+- Shiprocket rate requests use each Artist's private pickup PIN and the Customer's delivery PIN. Mixed-Artist baskets are grouped by pickup studio and may create multiple parcels / tracking IDs, while Razorpay collects a single payment.
+
+## 6. Artist onboarding and pickup locations
+
+- Artist signup starts with Artist / Studio Name, email and +91 phone.
+- After verification, `/artist/onboarding` collects the bio, studio street address, landmark, PIN / locality / city / State, registered Shiprocket pickup-location name, and payout details.
+- IFSC format is validated and verified server-side against Razorpay's public IFSC directory before saving the bank name and branch.
+- Bank account numbers must match their confirmation and are encrypted with AES-256-GCM before persistence. The Artist Portal displays a masked account number; the owner-only Studio Vault is the only UI that requests the decrypted bank number for legitimate payout administration.
+- The optional UPI ID is saved with the payout account.
+- Every Artist must have an exact pickup location registered in Shiprocket. The name saved in onboarding must match the location name configured in Shiprocket. A different registered pickup-location name should be used for each Artist studio where applicable.
+- Artist profile approval remains controlled by Artiste. The public gallery only lists approved, available artworks.
+
+IFSC lookup confirms bank / branch metadata; it does not independently prove that the bank account belongs to the Artist. Account ownership or penny-drop validation requires a separate regulated verification provider.
+
+## 7. Artist commission privacy
+
+The public homepage and Customer screens do not expose platform-fee or Artist-payout percentages. Only an authenticated Artist sees the private earnings calculator and ledger in `/artist`. The owner sees the complete financial and payout ledger in `/studio-vault-owner`.
+
+The existing V3 accounting model uses 2% of artwork sale value as the Artiste fee and 98% as the Artist payout; shipping is separate. Payout status is an accounting record only. The app does not transfer funds automatically. Mark a payout Paid only after the transfer has actually been completed outside the app.
+
+## 8. Private owner Studio Vault
+
+Visit `/studio-vault-owner` directly and enter the server-side `ADMIN_PASSWORD`. The route is deliberately not linked from the public website and is marked `noindex`. `/admin` redirects to the public homepage. All owner API endpoints continue to enforce the signed HttpOnly owner session cookie.
+
+Protect the owner password, Supabase service-role key, Razorpay secret, webhook secret and encryption key in the deployment host's secret manager. Use a unique password and rotate it if it may have been exposed.
+
+## 9. Razorpay and Shiprocket
+
+1. Begin with Razorpay Test Mode keys.
+2. Configure Razorpay webhook URL as `https://YOUR_DOMAIN/api/razorpay/webhook`.
+3. Subscribe to `payment.captured` and set the matching `RAZORPAY_WEBHOOK_SECRET`.
+4. Test verified payments, callback retries, duplicate webhook delivery, mismatched amount/order IDs, and sold-out artwork conflicts.
+5. Check that each Artist pickup location is registered and serviceable in Shiprocket. Test same-Artist and multi-Artist baskets, courier selection per pickup group and shipment retry / manual attention paths.
+6. Switch to live Razorpay keys only after end-to-end Test Mode validation.
+
+A captured payment that cannot be fulfilled because a work became unavailable requires manual refund / reconciliation. Shipment failures do not silently reverse the recorded payment.
+
+## 10. Owner launch checklist
+
+- [ ] Back up database and Storage before migration.
+- [ ] Run `database/schema.sql` and verify old artworks and orders remain.
+- [ ] Configure magic-link redirects and test Customer / Artist sign-up and returning sign-in.
+- [ ] Test onboarding redirects for incomplete and completed profiles.
+- [ ] Test India Post PIN lookup, offline fallback, State / UT dropdown, phone and landmark validation.
+- [ ] Verify IFSC success / invalid / unavailable scenarios and confirm bank account encryption key backup.
+- [ ] Register and test every Artist pickup origin in Shiprocket.
+- [ ] Test cart persistence across email-link redirects and multi-Artist combined payment.
+- [ ] Test Razorpay webhook signature, duplicate notifications, payment capture and order persistence.
+- [ ] Test `/account` My Orders and `/studio-vault-owner` owner orders / payouts.
+- [ ] Review privacy notice, Terms, refunds, invoices, taxes, dispatch SLA, payouts, shipping liability and customer support before public launch.
+
+## Main routes
+
+- Public Gallery: `/`
+- Customer Portal: `/account`
+- Customer Onboarding: `/account/onboarding`
+- Artist Portal: `/artist`
+- Artist Onboarding: `/artist/onboarding`
+- Private Owner Studio Vault: `/studio-vault-owner`
+- Hidden legacy route: `/admin` → redirects to `/`
+
+## Main API routes
 
 - `POST /api/shipping-rates`
 - `POST /api/create-order`
 - `POST /api/verify-payment`
-- `POST /api/razorpay/webhook` (`payment.captured`)
+- `POST /api/razorpay/webhook`
 - `GET, PATCH /api/account`
 - `GET, POST /api/artist/profile`
 - `GET, POST /api/artist/paintings`
 - `PATCH, DELETE /api/artist/paintings/:id`
 - `GET /api/artist/verify-ifsc`
 - `GET, POST /api/artist/payout-account`
-- `POST /api/admin/login`, `POST /api/admin/logout`
-- `GET /api/admin/paintings`, `POST /api/admin/paintings`, `PATCH, DELETE /api/admin/paintings/:id`
-- `GET /api/admin/overview`, `PATCH, DELETE /api/admin/artists/:id`, `PATCH /api/admin/payouts/:id`
+- `/api/admin/*` — owner-session-protected endpoints (not linked publicly)

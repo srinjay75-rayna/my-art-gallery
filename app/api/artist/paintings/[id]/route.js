@@ -6,7 +6,7 @@ export const runtime = 'nodejs';
 
 export async function PATCH(request, { params }) {
   try {
-    const user = await getUserFromRequest(request);
+    const user = await getUserFromRequest(request, { accountType: 'artist' });
     const { id } = await params;
     const body = await request.json();
     const supabase = requireServiceRole();
@@ -36,7 +36,7 @@ export async function PATCH(request, { params }) {
 
 export async function DELETE(request, { params }) {
   try {
-    const user = await getUserFromRequest(request);
+    const user = await getUserFromRequest(request, { accountType: 'artist' });
     const { id } = await params;
     const supabase = requireServiceRole();
     const artist = await getArtistForUser(supabase, user.id);

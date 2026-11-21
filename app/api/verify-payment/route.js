@@ -33,7 +33,7 @@ async function razorpayFetch(path, method = 'GET', body) {
 
 export async function POST(request) {
   try {
-    const user = await getUserFromRequest(request);
+    const user = await getUserFromRequest(request, { accountType: 'customer' });
     const body = await request.json();
     const orderId = String(body.razorpay_order_id || '');
     const paymentId = String(body.razorpay_payment_id || '');

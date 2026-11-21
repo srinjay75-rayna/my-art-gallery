@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request) {
   try {
-    const user = await getUserFromRequest(request);
+    const user = await getUserFromRequest(request, { accountType: 'customer' });
     const supabase = requireServiceRole();
     const email = String(user.email || '').trim().toLowerCase();
     const emailPattern = email.replace(/[\\%_]/g, '\\$&');
@@ -64,7 +64,7 @@ export async function GET(request) {
 
 export async function PATCH(request) {
   try {
-    const user = await getUserFromRequest(request);
+    const user = await getUserFromRequest(request, { accountType: 'customer' });
     const body = await request.json();
     const profile = {
       id: user.id,

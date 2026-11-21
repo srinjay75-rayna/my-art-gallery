@@ -1,5 +1,6 @@
 "use client";
 import EarningsCalculator from '@/components/EarningsCalculator';
+import { IndianRupee, Wallet } from 'lucide-react';
 
 const money = (value) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(Number(value || 0));
 
@@ -14,7 +15,7 @@ export default function ArtistPrivateEarnings({ ledger = [], showLedger = true }
     <div className="mt-7"><EarningsCalculator /></div>
     {showLedger && <section className="mt-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div><p className="eyebrow">Private Artist earnings &amp; payouts</p><h2 className="mt-2 font-display text-3xl">Your Artist ledger</h2></div>
+        <div><p className="eyebrow flex items-center gap-2"><Wallet size={13}/> Private Artist earnings &amp; payouts</p><h2 className="mt-2 font-display text-3xl">Your Artist ledger</h2></div>
         <span className="pill">Keep 98% · 2% platform fee</span>
       </div>
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

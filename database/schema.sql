@@ -685,6 +685,30 @@ create policy "Public can view painting images" on storage.objects for select to
 drop policy if exists "Public can view artist profile images" on storage.objects;
 create policy "Public can view artist profile images" on storage.objects for select to anon, authenticated using (bucket_id = 'artist-profiles');
 
--- Reminder: configure a Supabase Auth email template that includes {{ .Token }}
--- to deliver a 6-digit OTP. The application validates the Supabase JWT and its
--- signed AMR claim before serving protected account / Artist endpoints.
+-- V4 signup metadata is written when a new verified Supabase Auth identity is created.
+-- Existing populated profile fields are never overwritten by this trigger.
+create or replace function public.handle_new_auth_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles(id, full_name, phone)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'full_name', ''),
+    coalesce(new.raw_user_meta_data->>'phone', '')
+  )
+  on conflict (id) do update
+    set full_name = case when coalesce(profiles.full_name, '') = '' then excluded.full_name else profiles.full_name end,
+        phone = case when coalesce(profiles.phone, '') = '' then excluded.phone else profiles.phone end;
+  return new;
+end;
+$$;
+
+-- Reminder: configure the Supabase Email / Magic Link template with
+-- {{ .ConfirmationURL }} so verified users return to the dedicated onboarding
+-- path requested by the app. Passwordless sign-in is issued via signInWithOtp;
+-- the redirect callback completes Supabase's OTP verification before any
+-- protected Customer / Artist API route accepts the resulting signed JWT.

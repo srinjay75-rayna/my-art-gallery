@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { ArrowLeft, ArrowUpRight, CheckCircle2, RefreshCw, ShieldCheck, Trash2, UserRound, Wallet, XCircle } from 'lucide-react';
 
 const money = (v) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Number(v || 0));
 const blank = { title: '', medium: '', dimensions: '', price: '', weight_kg: '', length_cm: '', breadth_cm: '', height_cm: '' };
@@ -92,12 +93,12 @@ export default function AdminDashboard() {
     <main className="paper-grain min-h-screen px-5 py-8 md:px-10">
       <div className="mx-auto max-w-7xl">
         <header className="mb-9 flex flex-wrap items-center justify-between gap-4">
-          <a href="/" className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-full border border-clay/40 font-display text-xl text-clay">A</span><span><b className="block font-display text-2xl">Artiste</b><small className="eyebrow">Owner control centre</small></span></a>
-          <div className="flex items-center gap-4"><button onClick={logout} className="text-xs font-bold uppercase tracking-wider text-clay">Sign out</button><a href="/" className="text-xs font-bold uppercase tracking-wider text-clay">← View gallery</a></div>
+          <a href="/" className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-full border border-clay/40 font-display text-xl text-clay">A</span><span><b className="block font-display text-2xl">Artiste</b><small className="eyebrow flex items-center gap-1"><ShieldCheck size={11}/> Private studio vault</small></span></a>
+          <div className="flex items-center gap-4"><button onClick={logout} className="text-xs font-bold uppercase tracking-wider text-clay">Sign out</button><a href="/" className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-clay"><ArrowLeft size={13}/> View gallery</a></div>
         </header>
         <div className="mb-7 flex flex-wrap gap-2">
           {tabs.map((t) => <button key={t} onClick={() => setTab(t)} className={`rounded-full px-5 py-2 text-xs font-bold uppercase tracking-wider ${tab === t ? 'bg-ink text-white' : 'border border-[#d9cfc1] text-ink'}`}>{t}</button>)}
-          <button onClick={() => load().catch((e) => setError(e.message))} className="ml-auto rounded-full border border-[#d9cfc1] px-4 py-2 text-xs">Refresh ↻</button>
+          <button onClick={() => load().catch((e) => setError(e.message))} className="ml-auto inline-flex items-center gap-2 rounded-full border border-[#d9cfc1] px-4 py-2 text-xs"><RefreshCw size={13}/> Refresh</button>
         </div>
         {notice && <p className="mb-4 rounded-xl bg-green-50 p-3 text-sm text-green-800">{notice}</p>}
         {error && <p className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
@@ -109,11 +110,11 @@ export default function AdminDashboard() {
               <label className="label">Artwork photo<input id="owner-photo" type="file" accept="image/jpeg,image/png,image/webp,image/avif" required onChange={(e) => setPhoto(e.target.files?.[0] || null)} className="mt-2 block w-full text-xs"/></label>
               {[['title', 'Title'], ['medium', 'Medium'], ['dimensions', 'Canvas size'], ['price', 'Price (INR)'], ['weight_kg', 'Packed weight (kg)']].map(([n, l]) => <label key={n} className="label">{l}<input name={n} value={form[n]} onChange={update} required className="field mt-1" type={['price', 'weight_kg'].includes(n) ? 'number' : 'text'} step={['price', 'weight_kg'].includes(n) ? '0.01' : undefined} min={['price', 'weight_kg'].includes(n) ? '0.01' : undefined}/></label>)}
               <div className="grid grid-cols-3 gap-2">{['length_cm', 'breadth_cm', 'height_cm'].map((n) => <label key={n} className="label">{n.replace('_cm', '')} cm<input name={n} value={form[n]} onChange={update} required type="number" min="0.1" step="0.1" className="field mt-1"/></label>)}</div>
-              <button disabled={busy} className="btn-primary">{busy ? 'Saving…' : 'Publish artwork'} ↗</button>
+              <button disabled={busy} className="btn-primary">{busy ? 'Saving…' : 'Publish artwork'} <ArrowUpRight size={15}/></button>
             </form>
           </section>
           <section><h2 className="mb-4 font-display text-3xl">All artworks <span className="text-muted">({paintings.length})</span></h2><div className="grid gap-3">
-            {paintings.map((p) => <article key={p.id} className="flex gap-3 rounded-2xl border border-[#e5dccf] bg-[#fffdf8] p-3"><img src={p.image_url} alt={p.title} className="h-24 w-20 rounded-xl object-cover"/><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><b className="font-display text-xl">{p.title}</b><span className="pill">{p.is_sold ? 'Sold' : 'Available'}</span><span className="pill">{p.is_approved ? 'Approved' : 'Pending'}</span></div><p className="text-xs text-muted">Created by {p.artist_name || 'Artiste Studio'} · {money(p.price)}</p><div className="mt-2 flex flex-wrap gap-2"><button className="action-btn" disabled={busy} onClick={() => updatePainting(p, { is_sold: !p.is_sold })}>Mark {p.is_sold ? 'available' : 'sold'}</button><button className="action-btn" disabled={busy} onClick={() => updatePainting(p, { is_approved: !p.is_approved })}>{p.is_approved ? 'Unpublish' : 'Approve'}</button><button className="action-btn danger" disabled={busy} onClick={() => deletePainting(p)}>Delete</button></div></div></article>)}
+            {paintings.map((p) => <article key={p.id} className="flex gap-3 rounded-2xl border border-[#e5dccf] bg-[#fffdf8] p-3"><img src={p.image_url} alt={p.title} className="h-24 w-20 rounded-xl object-cover"/><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><b className="font-display text-xl">{p.title}</b><span className="pill">{p.is_sold ? 'Sold' : 'Available'}</span><span className="pill">{p.is_approved ? 'Approved' : 'Pending'}</span></div><p className="text-xs text-muted">Created by {p.artist_name || 'Artiste Studio'} · {money(p.price)}</p><div className="mt-2 flex flex-wrap gap-2"><button className="action-btn" disabled={busy} onClick={() => updatePainting(p, { is_sold: !p.is_sold })}>Mark {p.is_sold ? 'available' : 'sold'}</button><button className="action-btn" disabled={busy} onClick={() => updatePainting(p, { is_approved: !p.is_approved })}>{p.is_approved ? 'Unpublish' : 'Approve'}</button><button className="action-btn danger inline-flex items-center gap-1" disabled={busy} onClick={() => deletePainting(p)}><Trash2 size={13}/> Delete</button></div></div></article>)}
           </div></section>
         </div>}
 

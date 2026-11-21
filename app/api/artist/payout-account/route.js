@@ -17,7 +17,7 @@ async function lookupIfsc(ifsc) {
 
 export async function GET(request) {
   try {
-    const user = await getUserFromRequest(request);
+    const user = await getUserFromRequest(request, { accountType: 'artist' });
     const supabase = requireServiceRole();
     const artist = await getArtistForUser(supabase, user.id);
     if (!artist) return NextResponse.json({ account: null });
@@ -31,7 +31,7 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const user = await getUserFromRequest(request);
+    const user = await getUserFromRequest(request, { accountType: 'artist' });
     const body = await request.json();
     const accountHolder = String(body.account_holder_name || '').trim();
     const accountNumber = String(body.bank_account_number || '').replace(/\s/g, '');

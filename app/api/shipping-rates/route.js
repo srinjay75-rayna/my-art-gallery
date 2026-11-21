@@ -7,7 +7,7 @@ export const runtime = 'nodejs';
 
 export async function POST(request) {
   try {
-    await getUserFromRequest(request);
+    await getUserFromRequest(request, { accountType: 'customer' });
     const body = await request.json();
     const ids = Array.isArray(body.items) ? [...new Set(body.items.map((item) => String(item.paintingId || item.id || '').trim()))] : [];
     const deliveryPincode = String(body.deliveryPincode || '').trim();

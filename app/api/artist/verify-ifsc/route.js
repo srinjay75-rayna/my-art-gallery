@@ -5,7 +5,7 @@ export const runtime = 'nodejs';
 
 export async function GET(request) {
   try {
-    await getUserFromRequest(request);
+    await getUserFromRequest(request, { accountType: 'artist' });
     const ifsc = String(new URL(request.url).searchParams.get('ifsc') || '').trim().toUpperCase();
     if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc)) return NextResponse.json({ error: 'Enter a valid 11-character IFSC code.' }, { status: 400 });
     const response = await fetch(`https://ifsc.razorpay.com/${encodeURIComponent(ifsc)}`, { cache: 'no-store', signal: AbortSignal.timeout(10000) });

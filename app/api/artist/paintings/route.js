@@ -9,7 +9,7 @@ const ext = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'im
 
 export async function GET(request) {
   try {
-    const user = await getUserFromRequest(request);
+    const user = await getUserFromRequest(request, { accountType: 'artist' });
     const supabase = requireServiceRole();
     const artist = await getArtistForUser(supabase, user.id);
     if (!artist) return NextResponse.json({ paintings: [], error: 'Create your artist profile first.' }, { status: 404 });
@@ -27,7 +27,7 @@ export async function GET(request) {
 export async function POST(request) {
   let uploaded = null;
   try {
-    const user = await getUserFromRequest(request);
+    const user = await getUserFromRequest(request, { accountType: 'artist' });
     const supabase = requireServiceRole();
     const artist = await getArtistForUser(supabase, user.id);
     if (!artist) return NextResponse.json({ error: 'Create your Artist profile before listing an artwork.' }, { status: 403 });

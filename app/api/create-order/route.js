@@ -39,7 +39,7 @@ async function createRazorpayOrder({ keyId, keySecret, amountPaise, merchantRef,
 export async function POST(request) {
   try {
     const body = await request.json();
-    const user = await getUserFromRequest(request);
+    const user = await getUserFromRequest(request, { accountType: 'customer' });
     const ids = Array.isArray(body.items)
       ? [...new Set(body.items.map((item) => String(item.paintingId || item.id || '').trim()))]
       : [String(body.paintingId || '').trim()];

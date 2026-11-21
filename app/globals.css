@@ -25,3 +25,10 @@ button, input, select, textarea { font: inherit; }
 .action-btn.danger { border-color: #e4c7bd; color: #a24d36; }
 .pill { display: inline-flex; border-radius: 999px; background: #eee7dc; padding: 4px 9px; font-size: 8px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: #6b5b4d; }
 .cedilla-mark { display: inline-block; margin-left: .2em; color: #b4775f; font-family: Georgia, serif; font-size: 1.35em; line-height: 0; transform: translateY(.18em) rotate(-12deg); }
+
+/* Global Artiste contact, editorial footer and Concierge details */
+:focus-visible { outline: 2px solid #a24d36; outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+}
