@@ -10,12 +10,13 @@ export async function PATCH(request, { params }) {
     const body = await request.json();
     if (typeof body.is_approved !== 'boolean') return NextResponse.json({ error: 'is_approved must be true or false.' }, { status: 400 });
     const supabase = requireServiceRole();
-    const { data: artist, error } = await supabase.from('artists').update({ is_approved: body.is_approved }).eq('id', id).select('*').single();
+    const { data: artist, error } = await supabase.from('artists').update({
+      is_approved: body.is_approved,
+      is_suspended: !body.is_approved,
+    }).eq('id', id).select('*').single();
     if (error) throw error;
-    if (!body.is_approved) {
-      const { error: paintingsError } = await supabase.from('paintings').update({ is_approved: false }).eq('artist_id', id).eq('is_sold', false);
-      if (paintingsError) throw paintingsError;
-    }
+    const { error: paintingsError } = await supabase.from('paintings').update({ is_approved: body.is_approved }).eq('artist_id', id).eq('is_sold', false);
+    if (paintingsError) throw paintingsError;
     return NextResponse.json({ artist });
   } catch (error) { return NextResponse.json({ error: error.message || 'Could not update artist.' }, { status: 400 }); }
 }
@@ -27,7 +28,7 @@ export async function DELETE(_request, { params }) {
     const supabase = requireServiceRole();
     const [{ data: paintings, error: paintingsReadError }, { data: artist, error: artistReadError }, { data: payoutRows, error: payoutReadError }] = await Promise.all([
       supabase.from('paintings').select('id,image_url,is_sold').eq('artist_id', id),
-      supabase.from('artists').select('profile_photo_url').eq('id', id).maybeSingle(),
+      supabase.from('artists').select('profile_photo_url,avatar_url').eq('id', id).maybeSingle(),
       supabase.from('artist_payouts').select('id').eq('artist_id', id).limit(1),
     ]);
     if (paintingsReadError) throw paintingsReadError;
@@ -48,8 +49,9 @@ export async function DELETE(_request, { params }) {
     const { error } = await supabase.from('artists').delete().eq('id', id);
     if (error) throw error;
     const profileMarker = '/storage/v1/object/public/artist-profiles/';
-    const profilePos = String(artist?.profile_photo_url || '').indexOf(profileMarker);
-    if (profilePos >= 0) await supabase.storage.from('artist-profiles').remove([decodeURIComponent(artist.profile_photo_url.slice(profilePos + profileMarker.length))]);
+    const profileImageUrl = artist?.avatar_url || artist?.profile_photo_url || '';
+    const profilePos = String(profileImageUrl).indexOf(profileMarker);
+    if (profilePos >= 0) await supabase.storage.from('artist-profiles').remove([decodeURIComponent(profileImageUrl.slice(profilePos + profileMarker.length))]);
     return NextResponse.json({ ok: true });
   } catch (error) { return NextResponse.json({ error: error.message || 'Could not delete artist.' }, { status: 400 }); }
 }

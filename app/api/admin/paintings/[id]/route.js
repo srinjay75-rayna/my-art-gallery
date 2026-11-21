@@ -21,6 +21,15 @@ export async function PATCH(request, { params }) {
     if (typeof body.is_sold === 'boolean') update.is_sold = body.is_sold;
     if (typeof body.is_approved === 'boolean') update.is_approved = body.is_approved;
     const supabase = requireServiceRole();
+    if (body.is_approved === true) {
+      const { data: existing, error: existingError } = await supabase.from('paintings').select('artist_id').eq('id', id).single();
+      if (existingError) throw existingError;
+      if (existing.artist_id) {
+        const { data: artist, error: artistError } = await supabase.from('artists').select('is_suspended').eq('id', existing.artist_id).maybeSingle();
+        if (artistError) throw artistError;
+        if (artist?.is_suspended) return NextResponse.json({ error: 'This Artist is suspended. Reactivate the Artist before publishing their artwork.' }, { status: 409 });
+      }
+    }
     const { data, error } = await supabase.from('paintings').update(update).eq('id', id).select('*').single();
     if (error) throw error;
     return NextResponse.json({ painting: data });

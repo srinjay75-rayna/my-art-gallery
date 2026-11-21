@@ -166,7 +166,7 @@ export default function ArtistOnboardingPage() {
     <header className="mb-10 flex items-center justify-between"><a href="/" className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-full border border-clay/40 font-display text-xl text-clay">A</span><span className="font-display text-2xl">Artiste</span></a><a href="/artist" className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-clay"><ArrowLeft size={14} /> Artist Portal</a></header>
     <p className="eyebrow flex items-center gap-2"><BadgeCheck size={14} /> Email verified · Step 2 of 2</p>
     <h1 className="mt-3 font-display text-5xl">Set up your <em className="font-normal text-clay">Artist studio.</em></h1>
-    <p className="mt-3 max-w-2xl text-sm leading-7 text-muted">Complete your Artist profile, studio pickup details and verified payout destination before listing original work on Artiste.</p>
+    <p className="mt-3 max-w-2xl text-sm leading-7 text-muted">Complete your Artist profile, studio pickup details and IFSC-verified payout destination. Once saved, your Artist studio activates automatically and you can publish original work immediately.</p>
     <div className="mt-6 rounded-2xl border border-[#e5dccf] bg-[#f7f1e8] p-4 text-sm"><p className="font-semibold">{artistName || 'Artist'} · {session?.user?.email}</p><p className="mt-1 text-xs text-muted">+91 {phoneDigits} · Studio &amp; payout information stays private.</p></div>
     {error && <p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}{notice && <p role="status" className="mt-5 rounded-xl bg-green-50 p-3 text-sm text-green-800">{notice}</p>}
     <form onSubmit={save} className="mt-6 grid gap-6">
@@ -197,7 +197,7 @@ export default function ArtistOnboardingPage() {
         </>}
       </section>
       <button disabled={busy} className="btn-primary flex items-center justify-center gap-2">{busy ? 'Saving your Artist profile…' : 'Save profile & continue to Artist Portal'} <ArrowUpRight size={15} /></button>
-      <p className="text-center text-[10px] leading-5 text-muted">Your profile may need Artiste approval before artworks appear in the public gallery. Your payout and pickup information is private.</p>
+      <p className="text-center text-[10px] leading-5 text-muted">Your Artist studio activates automatically after your profile and verified payout details are saved. Your payout and pickup information remains private.</p>
     </form>
   </div></main>;
 }

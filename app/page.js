@@ -8,7 +8,7 @@ export default async function HomePage() {
   try {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase.from('paintings')
-      .select('id,title,medium,dimensions,price,weight_kg,length_cm,breadth_cm,height_cm,image_url,is_sold,artist_name,is_approved')
+      .select('id,title,medium,dimensions,price,weight_kg,length_cm,breadth_cm,height_cm,image_url,is_sold,artist_name,avatar_url,is_approved')
       .eq('is_sold', false).eq('is_approved', true).order('created_at', { ascending: false });
     if (error) throw error;
     paintings = data || [];

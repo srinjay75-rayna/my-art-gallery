@@ -12,6 +12,7 @@ export async function PATCH(request, { params }) {
     const supabase = requireServiceRole();
     const artist = await getArtistForUser(supabase, user.id);
     if (!artist) return NextResponse.json({ error: 'Artist profile not found.' }, { status: 404 });
+    if (artist.is_suspended) return NextResponse.json({ error: 'Your Artist account is suspended by the Artiste owner.' }, { status: 403 });
     const { data: existing, error: existingError } = await supabase.from('paintings').select('id,is_sold').eq('id', id).eq('artist_id', artist.id).maybeSingle();
     if (existingError) throw existingError;
     if (!existing) return NextResponse.json({ error: 'Artwork not found.' }, { status: 404 });
@@ -41,6 +42,7 @@ export async function DELETE(request, { params }) {
     const supabase = requireServiceRole();
     const artist = await getArtistForUser(supabase, user.id);
     if (!artist) return NextResponse.json({ error: 'Artist profile not found.' }, { status: 404 });
+    if (artist.is_suspended) return NextResponse.json({ error: 'Your Artist account is suspended by the Artiste owner.' }, { status: 403 });
     const { data: painting, error: readError } = await supabase.from('paintings').select('id,image_url,is_sold').eq('id', id).eq('artist_id', artist.id).single();
     if (readError) throw readError;
     if (painting.is_sold) return NextResponse.json({ error: 'Sold artworks cannot be deleted.' }, { status: 409 });

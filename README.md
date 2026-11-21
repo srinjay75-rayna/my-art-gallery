@@ -183,3 +183,18 @@ A captured payment that cannot be fulfilled because a work became unavailable re
 - `POST /api/auth/send-otp` — sends a six-digit numeric email code via SMTP
 - `POST /api/auth/verify-otp` — atomically consumes the code and returns an active Supabase session
 - `/api/admin/*` — owner-session-protected endpoints (not linked publicly)
+
+
+## V4 polish update (automatic Artist activation, non-blocking sessions and avatars)
+
+This update keeps the in-page six-digit email OTP + password flow intact and adds:
+
+- Artist studios activate automatically once the Artist profile, pickup address and IFSC-verified payout details are saved. New artworks publish immediately.
+- The owner can still suspend/reactivate an Artist from `/studio-vault-owner`; suspensions are stored in `artists.is_suspended` and hide the Artist's unsold works until reactivated.
+- `/artist` and `/account` no longer show a full-screen re-buffer when Supabase refreshes a session token or reports a same-user sign-in event. Account data loading is keyed to the user ID.
+- Saved Customer shipping details and Artist studio / bank details are presented as summary cards and open for editing only on request.
+- Artist profile photos are stored in the `artist-profiles` Supabase Storage bucket. The public-safe `avatar_url` is copied onto painting rows so the gallery can render a circular Artist avatar without making private Artist profile or pickup fields publicly readable.
+
+### Database migration
+
+Run the updated `database/schema.sql` in the Supabase SQL Editor before deploying this build. It uses additive `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` statements for `artists.avatar_url`, `artists.is_suspended`, and `paintings.avatar_url`, and backfills existing painting cards with the corresponding Artist avatar. Existing artwork, Customer orders and Artist payout history are retained.

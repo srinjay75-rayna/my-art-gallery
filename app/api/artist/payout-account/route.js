@@ -67,7 +67,21 @@ export async function POST(request) {
     }, { onConflict: 'artist_id' })
       .select('artist_id,account_holder_name,bank_account_number_masked,ifsc_code,bank_name,branch_name,upi_id,verified_at,updated_at').single();
     if (error) throw error;
-    return NextResponse.json({ account: data, message: 'Your IFSC was verified and payout details were securely saved.' });
+    // Profile + verified payout details complete the Artist onboarding.
+    // Activate the studio immediately unless the owner has explicitly suspended it.
+    const { data: currentArtist, error: artistReadError } = await supabase.from('artists').select('id,is_suspended,artist_name,avatar_url,profile_photo_url').eq('id', artist.id).single();
+    if (artistReadError) throw artistReadError;
+    if (!currentArtist.is_suspended) {
+      const { error: activateError } = await supabase.from('artists').update({ is_approved: true }).eq('id', artist.id).eq('is_suspended', false);
+      if (activateError) throw activateError;
+      const { error: publishError } = await supabase.from('paintings').update({
+        is_approved: true,
+        artist_name: currentArtist.artist_name,
+        avatar_url: currentArtist.avatar_url || currentArtist.profile_photo_url || '',
+      }).eq('artist_id', artist.id).eq('is_sold', false);
+      if (publishError) throw publishError;
+    }
+    return NextResponse.json({ account: data, message: currentArtist.is_suspended ? 'Payout details saved. Your Artist studio remains suspended by the Artiste owner.' : 'Your IFSC was verified, payout details were securely saved, and your Artist studio is now active.' });
   } catch (error) {
     return NextResponse.json({ error: error.message || 'Could not save verified payout details.' }, { status: 400 });
   }

@@ -45,6 +45,7 @@ create table if not exists public.artists (
   city text not null default '',
   state text not null default '',
   profile_photo_url text not null default '',
+  avatar_url text not null default '',
   pickup_address text not null default '',
   pickup_contact_name text not null default '',
   pickup_phone text not null default '',
@@ -53,6 +54,7 @@ create table if not exists public.artists (
   pickup_pincode text not null default '',
   pickup_location text not null default 'Primary',
   is_approved boolean not null default false,
+  is_suspended boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -63,6 +65,7 @@ alter table public.artists add column if not exists bio text not null default ''
 alter table public.artists add column if not exists city text not null default '';
 alter table public.artists add column if not exists state text not null default '';
 alter table public.artists add column if not exists profile_photo_url text not null default '';
+alter table public.artists add column if not exists avatar_url text not null default '';
 alter table public.artists add column if not exists pickup_address text not null default '';
 alter table public.artists add column if not exists pickup_contact_name text not null default '';
 alter table public.artists add column if not exists pickup_phone text not null default '';
@@ -71,6 +74,7 @@ alter table public.artists add column if not exists pickup_locality text not nul
 alter table public.artists add column if not exists pickup_pincode text not null default '';
 alter table public.artists add column if not exists pickup_location text not null default 'Primary';
 alter table public.artists add column if not exists is_approved boolean not null default false;
+alter table public.artists add column if not exists is_suspended boolean not null default false;
 alter table public.artists add column if not exists created_at timestamptz not null default now();
 alter table public.artists add column if not exists updated_at timestamptz not null default now();
 update public.artists set pickup_contact_name = coalesce(nullif(pickup_contact_name, ''), artist_name) where pickup_contact_name = '';
@@ -96,6 +100,7 @@ create table if not exists public.paintings (
   is_sold boolean not null default false,
   artist_id uuid references public.artists(id) on delete set null,
   artist_name text not null default 'Artiste Studio',
+  avatar_url text not null default '',
   is_approved boolean not null default true,
   pickup_pincode text,
   pickup_location text not null default 'Primary',
@@ -104,10 +109,21 @@ create table if not exists public.paintings (
 alter table public.paintings add column if not exists is_sold boolean not null default false;
 alter table public.paintings add column if not exists artist_id uuid references public.artists(id) on delete set null;
 alter table public.paintings add column if not exists artist_name text not null default 'Artiste Studio';
+alter table public.paintings add column if not exists avatar_url text not null default '';
 alter table public.paintings add column if not exists is_approved boolean not null default true;
 alter table public.paintings add column if not exists pickup_pincode text;
 alter table public.paintings add column if not exists pickup_location text not null default 'Primary';
 alter table public.paintings add column if not exists created_at timestamptz not null default now();
+
+-- Artist avatars are safe public attribution fields; studio pickup and payout
+-- information remains in the private Artist / dispatch tables.
+update public.artists
+set avatar_url = coalesce(nullif(avatar_url, ''), nullif(profile_photo_url, ''), '')
+where coalesce(avatar_url, '') = '' and coalesce(profile_photo_url, '') <> '';
+update public.paintings p
+set avatar_url = coalesce(nullif(a.avatar_url, ''), nullif(a.profile_photo_url, ''), '')
+from public.artists a
+where p.artist_id = a.id and coalesce(p.avatar_url, '') = '';
 
 -- Private origin table. This keeps old pickup data intact while removing it from
 -- public gallery rows (table-wide GRANTs below must not expose origin PINs).
@@ -547,7 +563,8 @@ begin
     new.is_approved := false;
   else
     if old.user_id <> auth.uid() or new.user_id <> old.user_id then raise exception 'Artists can only update their own profile'; end if;
-    if new.is_approved is distinct from old.is_approved then raise exception 'Only the Artiste owner can approve an Artist profile'; end if;
+    if new.is_approved is distinct from old.is_approved then raise exception 'Only the Artiste owner can activate an Artist profile'; end if;
+    if new.is_suspended is distinct from old.is_suspended then raise exception 'Only the Artiste owner can suspend an Artist account'; end if;
   end if;
   return new;
 end;
