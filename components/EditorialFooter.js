@@ -7,7 +7,7 @@ const whatsappHref = `https://wa.me/${siteConfig.whatsappNumber}`;
 
 export default function EditorialFooter() {
   return (
-    <footer className="relative overflow-hidden border-t border-[#ded5c9] bg-[#f1eadf] text-[#28231f]">
+    <footer className="site-chrome relative overflow-hidden border-t border-[#ded5c9] bg-[#f1eadf] text-[#28231f]">
       <div className="pointer-events-none absolute -right-24 -top-28 h-72 w-72 rounded-full border border-[#c8b39a]/35" />
       <div className="mx-auto grid max-w-7xl gap-10 px-5 py-12 md:grid-cols-[1.15fr_.85fr_1fr] md:px-10 md:py-16">
         <div>

@@ -28,6 +28,7 @@ export async function PATCH(request, { params }) {
     for (const key of ['price', 'weight_kg', 'length_cm', 'breadth_cm', 'height_cm']) {
       if (update[key] !== undefined && (!Number.isFinite(Number(update[key])) || Number(update[key]) <= 0)) return NextResponse.json({ error: `${key} must be a positive number.` }, { status: 400 });
     }
+    if (update.weight_kg !== undefined && Number(update.weight_kg) < 0.2) return NextResponse.json({ error: 'Packed weight must be at least 0.2 kg.' }, { status: 400 });
     if (['title', 'medium', 'dimensions'].some((key) => update[key] !== undefined && !String(update[key]).trim())) return NextResponse.json({ error: 'Text details cannot be blank.' }, { status: 400 });
     const { data, error } = await supabase.from('paintings').update(update).eq('id', id).eq('artist_id', artist.id).select('*').single();
     if (error) throw error;

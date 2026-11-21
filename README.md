@@ -1,6 +1,6 @@
-# Artiste v4 — Original Indian Art Marketplace
+# Artiste v5 — Original Indian Art Marketplace
 
-Artiste v4 upgrades the existing Next.js App Router + JavaScript + Tailwind + Supabase + Shiprocket + Razorpay project while retaining the Artiste brand, A monogram, warm editorial gallery styling, existing API integrations, and the additive v3 database migration.
+Artiste v5 upgrades the existing Next.js App Router + JavaScript + Tailwind + Supabase + Shiprocket + Razorpay project while retaining the Artiste brand, A monogram, warm editorial gallery styling, existing API integrations, and the additive v3 database migration.
 
 ## V4 changes
 
@@ -117,7 +117,7 @@ The API endpoints are `POST /api/auth/send-otp` and `POST /api/auth/verify-otp`.
 - Bank account numbers must match their confirmation and are encrypted with AES-256-GCM before persistence. The Artist Portal displays a masked account number; the owner-only Studio Vault is the only UI that requests the decrypted bank number for legitimate payout administration.
 - The optional UPI ID is saved with the payout account.
 - Every Artist must have an exact pickup location registered in Shiprocket. The name saved in onboarding must match the location name configured in Shiprocket. A different registered pickup-location name should be used for each Artist studio where applicable.
-- Artist profile approval remains controlled by Artiste. The public gallery only lists approved, available artworks.
+- Artist profiles activate automatically after the required profile, pickup-address and verified payout details are completed. The Owner can still suspend an account; the public gallery only lists approved, available, non-suspended artworks.
 
 IFSC lookup confirms bank / branch metadata; it does not independently prove that the bank account belongs to the Artist. Account ownership or penny-drop validation requires a separate regulated verification provider.
 
@@ -166,11 +166,14 @@ A captured payment that cannot be fulfilled because a work became unavailable re
 - Artist Portal: `/artist`
 - Artist Onboarding: `/artist/onboarding`
 - Private Owner Studio Vault: `/studio-vault-owner`
+- Official Bill of Supply: `/invoice/[orderId]` (paid orders only)
+- Artist Dispatch Packing Slip: `/packing-slip/[orderId]`
 - Hidden legacy route: `/admin` → redirects to `/`
 
 ## Main API routes
 
 - `POST /api/shipping-rates`
+- `GET /api/order-documents/:orderId` — authenticated, paid-order invoice / packing-slip data
 - `POST /api/create-order`
 - `POST /api/verify-payment`
 - `POST /api/razorpay/webhook`
@@ -198,3 +201,13 @@ This update keeps the in-page six-digit email OTP + password flow intact and add
 ### Database migration
 
 Run the updated `database/schema.sql` in the Supabase SQL Editor before deploying this build. It uses additive `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` statements for `artists.avatar_url`, `artists.is_suspended`, and `paintings.avatar_url`, and backfills existing painting cards with the corresponding Artist avatar. Existing artwork, Customer orders and Artist payout history are retained.
+
+## Version 5 additions
+
+- `lib/siteConfig.js` now centralises the Artiste company name, editable Ganguly Bagan head-office address, GST status, support email and phone. The same values are used on every generated Bill of Supply.
+- Paid orders have a print-ready `/invoice/[orderId]` Bill of Supply with the order / payment reference, customer delivery details, artwork rows, shipping, zero GST and amount-in-words. Customers, involved Artists and the authenticated owner can open it from their order ledger. Use the browser print dialog and choose **Save as PDF**.
+- Artists can enter packed weights from **0.2 kg**; new artwork forms default to **0.5 kg**.
+- Delivery choices are sorted lowest price first. In addition to live Shiprocket quotes, matching first-three-digit PIN zones are shown a flat local economy option (₹45 up to 1 kg; ₹75 above 1 kg) and free studio collection. These two local methods are manually coordinated by the Artist / Artiste and are not direct Porter / Borzo API integrations. The first three PIN digits are only a postal-zone hint, not a guarantee of municipal city boundaries.
+- Artist earnings rows link to both the official Bill of Supply and a printable Artist dispatch packing slip.
+
+The local economy / studio pickup choices do not incur a paid API subscription. Shiprocket rates still require your existing Shiprocket account. Configure the exact company support and contact details in `lib/siteConfig.js` before issuing customer documents.

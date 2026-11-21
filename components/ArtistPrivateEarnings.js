@@ -1,6 +1,6 @@
 "use client";
 import EarningsCalculator from '@/components/EarningsCalculator';
-import { IndianRupee, Wallet } from 'lucide-react';
+import { FileText, Package, Wallet } from 'lucide-react';
 
 const money = (value) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(Number(value || 0));
 
@@ -25,9 +25,9 @@ export default function ArtistPrivateEarnings({ ledger = [], showLedger = true }
         <div className="rounded-2xl border border-[#e5dccf] bg-[#fffdf8] p-5"><p className="eyebrow">Pending payout</p><p className="mt-2 font-display text-3xl">{money(pending)}</p><small className="text-muted">Paid: {money(paid)}</small></div>
       </div>
       <div className="mt-4 overflow-x-auto rounded-2xl border border-[#e5dccf] bg-[#fffdf8]">
-        <table className="w-full min-w-[760px] text-left text-sm">
-          <thead className="bg-[#f0e9df] text-[10px] uppercase tracking-wider"><tr>{['Order','Sale value','Artiste fee','Artist payout','Payout status','Date'].map((col) => <th className="p-4" key={col}>{col}</th>)}</tr></thead>
-          <tbody>{ledger.map((row) => <tr key={row.id} className="border-t border-[#eee6db]"><td className="p-4">{row.order_ref || row.order_id}</td><td className="p-4">{money(row.gross_amount)}</td><td className="p-4">{money(row.platform_fee)}</td><td className="p-4 font-semibold text-clay">{money(row.artist_payout)}</td><td className="p-4">{row.payout_status || 'Pending'}</td><td className="p-4">{new Date(row.created_at).toLocaleDateString('en-IN')}</td></tr>)}</tbody>
+        <table className="w-full min-w-[980px] text-left text-sm">
+          <thead className="bg-[#f0e9df] text-[10px] uppercase tracking-wider"><tr>{['Order','Sale value','Artiste fee','Artist payout','Payout status','Date','Documents'].map((col) => <th className="p-4" key={col}>{col}</th>)}</tr></thead>
+          <tbody>{ledger.map((row) => <tr key={row.id} className="border-t border-[#eee6db]"><td className="p-4">{row.order_ref || row.order_id}</td><td className="p-4">{money(row.gross_amount)}</td><td className="p-4">{money(row.platform_fee)}</td><td className="p-4 font-semibold text-clay">{money(row.artist_payout)}</td><td className="p-4">{row.payout_status || 'Pending'}</td><td className="p-4">{new Date(row.created_at).toLocaleDateString('en-IN')}</td><td className="p-4"><div className="flex flex-wrap gap-2"><a className="action-btn inline-flex items-center gap-1" href={`/invoice/${row.order_id}`} target="_blank" rel="noreferrer"><FileText size={12}/> Bill</a><a className="action-btn inline-flex items-center gap-1" href={`/packing-slip/${row.order_id}`} target="_blank" rel="noreferrer"><Package size={12}/> Packing slip</a></div></td></tr>)}</tbody>
         </table>
         {!ledger.length && <p className="p-8 text-center text-sm text-muted">Your paid artwork sales will appear here. Payout status is tracked transparently; bank transfers are not automatic.</p>}
       </div>

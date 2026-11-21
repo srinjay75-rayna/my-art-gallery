@@ -16,7 +16,7 @@ const answerByTopic = {
   'Shipping & Delivery': 'We arrange Pan-India courier dispatch through Shiprocket, generally within 2–4 business days after payment confirmation. Once the shipment is booked, tracking details are shared in your Artiste account. Delivery time after dispatch depends on your destination and the courier route.',
   'Packaging & Transit Damage': 'Original paintings are prepared in protective, artwork-appropriate packaging designed for safe transit. Our transit-damage protection window is 48 hours from delivery. Please record a continuous unboxing video before opening, keep the packaging, and email clear photos plus the video to support within 48 hours so the issue can be reviewed with the courier. See our Shipping & Returns policy for the full process.',
   'Payment Methods': 'Payments are collected securely through Razorpay Checkout. Available methods may include UPI, debit and credit cards, and NetBanking, depending on your bank, device and Razorpay availability at checkout. Artiste does not ask you to share card, UPI PIN or banking passwords in chat.',
-  'Artist Applications': 'Independent Artists can apply through the For Artiṣte portal. Create an account using your email, verify the 6-digit email code, then complete your Artist profile, studio pickup address and payout details. Submit your original works from the Artist Portal; listings are subject to Artiste review.',
+  'Artist Applications': 'Independent Artists can apply through the For Artiṣte portal. Create an account using your email, verify the 6-digit email code, then complete your Artist profile, studio pickup address and payout details. Once your Artist profile and verified payout details are complete, your studio is activated automatically and you can publish original works. Artiste may still moderate listings or suspend accounts to protect the gallery.',
   'Order Tracking': 'Sign in at For Cuṣtomers and open My Orders. Your order page shows the current order status and available courier or AWB tracking details. Tracking appears after the shipment is booked by the courier. For help with an order, contact Support with your order reference.',
 };
 
@@ -48,7 +48,7 @@ export default function ArtisteConcierge() {
   }
 
   return (
-    <div className="fixed bottom-5 right-5 z-[80] flex flex-col items-end gap-3" aria-live="polite">
+    <div className="site-chrome fixed bottom-5 right-5 z-[80] flex flex-col items-end gap-3" aria-live="polite">
       {open && (
         <section className="flex max-h-[min(640px,calc(100vh-110px))] w-[min(380px,calc(100vw-32px))] flex-col overflow-hidden rounded-[24px] border border-[#e1d5c7] bg-[#fffdf8] shadow-[0_24px_80px_rgba(40,35,31,.24)]" aria-label="Artiste Concierge chat">
           <header className="flex items-center justify-between bg-[#28231f] px-5 py-4 text-[#f8efe4]">

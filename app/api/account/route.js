@@ -30,11 +30,13 @@ export async function GET(request) {
     const shipmentsByOrder = new Map();
     if (orderIds.length) {
       const { data: shipments, error: shipmentError } = await supabase.from('order_shipments')
-        .select('id,order_id,artist_name,courier_name,shiprocket_order_id,shiprocket_shipment_id,awb_code,shipment_status,shipment_note,created_at')
+        .select('id,order_id,artist_name,courier_name,shiprocket_order_id,shiprocket_shipment_id,awb_code,shipment_status,shipment_note,pickup_contact_name,pickup_phone,pickup_address,pickup_landmark,pickup_locality,pickup_city,pickup_state,pickup_pincode,pickup_location,created_at')
         .in('order_id', orderIds).order('group_index', { ascending: true });
       if (shipmentError) throw shipmentError;
+      const paidOrderIds = new Set(orders.filter((row) => String(row.status || '').toLowerCase() === 'paid').map((row) => row.id));
       for (const shipment of shipments || []) {
         const rows = shipmentsByOrder.get(shipment.order_id) || [];
+        const showCollectionDetails = paidOrderIds.has(shipment.order_id) && shipment.shipment_status === 'Studio pickup selected';
         rows.push({
           artist_name: shipment.artist_name,
           courier_name: shipment.courier_name,
@@ -43,6 +45,15 @@ export async function GET(request) {
           awb_code: shipment.awb_code,
           shipment_status: shipment.shipment_status,
           shipment_note: shipment.shipment_note,
+          pickup_contact_name: showCollectionDetails ? shipment.pickup_contact_name : null,
+          pickup_phone: showCollectionDetails ? shipment.pickup_phone : null,
+          pickup_address: showCollectionDetails ? shipment.pickup_address : null,
+          pickup_landmark: showCollectionDetails ? shipment.pickup_landmark : null,
+          pickup_locality: showCollectionDetails ? shipment.pickup_locality : null,
+          pickup_city: showCollectionDetails ? shipment.pickup_city : null,
+          pickup_state: showCollectionDetails ? shipment.pickup_state : null,
+          pickup_pincode: showCollectionDetails ? shipment.pickup_pincode : null,
+          pickup_location: showCollectionDetails ? shipment.pickup_location : null,
         });
         shipmentsByOrder.set(shipment.order_id, rows);
       }

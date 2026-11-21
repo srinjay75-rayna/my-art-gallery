@@ -843,3 +843,13 @@ grant execute on function public.consume_email_otp(text, text, text, text) to se
 
 -- OTP rows are temporary. The send endpoint opportunistically prunes expired
 -- records older than one day using service_role; no scheduled job is required.
+
+-- Version 5 delivery-mode convention (no schema change required):
+-- order_shipments.courier_id = -101 means Artiste same-zone local economy delivery;
+-- order_shipments.courier_id = -102 means free Artist studio collection.
+-- These reserved negative values are handled by the application and are never
+-- submitted to Shiprocket as real courier-company IDs.
+comment on column public.order_shipments.courier_id is
+  'Shiprocket courier ID; reserved -101 = Artiste local economy, -102 = free studio collection.';
+comment on column public.orders.courier_id is
+  'Primary courier ID or Artiste reserved synthetic local delivery / studio pickup ID.';

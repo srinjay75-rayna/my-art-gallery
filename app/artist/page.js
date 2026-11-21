@@ -21,7 +21,7 @@ import IndianAddressForm from '@/components/IndianAddressForm';
 const ArtistPrivateEarnings = dynamic(() => import('@/components/ArtistPrivateEarnings'), { ssr: false, loading: () => null });
 const money = (value) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(Number(value || 0));
 const emptyPickup = { full_name: '', phone: '', address: '', landmark: '', locality: '', city: '', state: '', pincode: '' };
-const artworkBlank = { title: '', medium: '', dimensions: '', price: '', weight_kg: '', length_cm: '', breadth_cm: '', height_cm: '' };
+const artworkBlank = { title: '', medium: '', dimensions: '', price: '', weight_kg: '0.5', length_cm: '', breadth_cm: '', height_cm: '' };
 const payoutBlank = { account_holder_name: '', bank_account_number: '', confirm_bank_account_number: '', ifsc_code: '', upi_id: '' };
 
 export default function ArtistPage() {
@@ -298,7 +298,7 @@ export default function ArtistPage() {
               {[
                 ['title', 'Title'], ['medium', 'Medium'], ['dimensions', 'Canvas size'],
                 ['price', 'Price (INR)'], ['weight_kg', 'Packed weight (kg)'],
-              ].map(([name, label]) => <label className="label" key={name}>{label}<input className="field mt-1" value={form[name]} onChange={(e) => setForm({ ...form, [name]: e.target.value })} required type={['price', 'weight_kg'].includes(name) ? 'number' : 'text'} step={['price', 'weight_kg'].includes(name) ? '0.01' : undefined} min={['price', 'weight_kg'].includes(name) ? '0.01' : undefined}/></label>)}
+              ].map(([name, label]) => <label className="label" key={name}>{label}<input className="field mt-1" value={form[name]} onChange={(e) => setForm({ ...form, [name]: e.target.value })} required type={['price', 'weight_kg'].includes(name) ? 'number' : 'text'} step={name === 'weight_kg' ? '0.1' : name === 'price' ? '0.01' : undefined} min={name === 'weight_kg' ? '0.2' : name === 'price' ? '1' : undefined}/>{name === 'weight_kg' && <small className="text-muted">Light parcels from 0.2 kg · default 0.5 kg</small>}</label>)}
               <div className="grid grid-cols-3 gap-2">{['length_cm', 'breadth_cm', 'height_cm'].map((name) => <label key={name} className="label">{name.replace('_cm', '')} cm<input className="field mt-1" type="number" min="0.1" step="0.1" required value={form[name]} onChange={(e) => setForm({ ...form, [name]: e.target.value })}/></label>)}</div>
               <button disabled={busy || isSuspended || !payoutAccount?.verified_at} className="btn-primary inline-flex items-center justify-center gap-2">{busy ? 'Publishing…' : isSuspended ? 'Studio suspended' : 'Publish Artwork'} <ArrowUpRight size={15}/></button>
             </form>

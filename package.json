@@ -1,6 +1,6 @@
 {
-  "name": "artiste-art-store",
-  "version": "4.0.0",
+  "name": "artiste-marketplace",
+  "version": "5.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",

@@ -52,6 +52,7 @@ export async function POST(request) {
       numeric[field] = Number(form.get(field));
       if (!Number.isFinite(numeric[field]) || numeric[field] <= 0) return NextResponse.json({ error: `${field.replaceAll('_', ' ')} must be a positive number.` }, { status: 400 });
     }
+    if (numeric.weight_kg < 0.2) return NextResponse.json({ error: 'Packed weight must be at least 0.2 kg.' }, { status: 400 });
     if (!title || !medium || !dimensions || title.length > 120 || medium.length > 120 || dimensions.length > 100) return NextResponse.json({ error: 'Enter a valid title, medium, and canvas size.' }, { status: 400 });
     uploaded = `${artist.id}/${crypto.randomUUID()}.${ext[photo.type]}`;
     const { error: uploadError } = await supabase.storage.from('paintings').upload(uploaded, Buffer.from(await photo.arrayBuffer()), { contentType: photo.type, cacheControl: '31536000', upsert: false });

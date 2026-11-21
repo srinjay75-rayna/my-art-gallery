@@ -130,9 +130,9 @@ export async function POST(request) {
     for (const group of groups) {
       const available = liveRateGroups.find((rateGroup) => rateGroup.groupKey === group.groupKey);
       const selected = requestedSelections.find((choice) => choice.groupKey === group.groupKey);
-      if (!available?.couriers?.length) return NextResponse.json({ error: `No courier service is available from ${group.artist_name}'s studio. Please contact Artiste support.` }, { status: 409 });
+      if (!available?.couriers?.length) return NextResponse.json({ error: `No courier or local collection option is available from ${group.artist_name}'s studio. Please contact Artiste support.` }, { status: 409 });
       const courier = available.couriers.find((option) => option.courier_company_id === Number(selected?.courierId));
-      if (!courier) return NextResponse.json({ error: `The courier quote for ${group.artist_name} has expired. Refresh delivery rates and choose again.` }, { status: 409 });
+      if (!courier) return NextResponse.json({ error: `The delivery quote for ${group.artist_name} has expired. Refresh delivery options and choose again.` }, { status: 409 });
       if (!Number.isFinite(Number(selected?.quotedRate)) || Math.abs(Number(selected.quotedRate) - courier.rate) > 0.01) {
         return NextResponse.json({ error: `The courier price for ${group.artist_name} has changed. Refresh shipping rates.` }, { status: 409 });
       }
@@ -161,7 +161,12 @@ export async function POST(request) {
         courier_id: courier.courier_company_id,
         courier_name: courier.courier_name,
         shipping_amount: money(courier.rate),
-        shipment_status: 'Pending',
+        shipment_status: courier.delivery_mode === 'local_economy'
+          ? 'Local delivery selected'
+          : courier.delivery_mode === 'studio_pickup'
+            ? 'Studio pickup selected'
+            : 'Pending',
+        shipment_note: courier.description || null,
       });
     }
 

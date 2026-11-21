@@ -1,10 +1,10 @@
 "use client";
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, ArrowUpRight, CheckCircle2, RefreshCw, ShieldCheck, Trash2, UserRound, Wallet, XCircle } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, CheckCircle2, RefreshCw, ShieldCheck, Trash2, UserRound, Wallet, XCircle, FileText } from 'lucide-react';
 
 const money = (v) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Number(v || 0));
-const blank = { title: '', medium: '', dimensions: '', price: '', weight_kg: '', length_cm: '', breadth_cm: '', height_cm: '' };
+const blank = { title: '', medium: '', dimensions: '', price: '', weight_kg: '0.5', length_cm: '', breadth_cm: '', height_cm: '' };
 const tabs = ['Paintings', 'Artists', 'Orders'];
 const dash = (v) => v || '—';
 
@@ -108,7 +108,7 @@ export default function AdminDashboard() {
             <h2 className="font-display text-3xl">Add owner artwork</h2>
             <form onSubmit={upload} className="mt-5 grid gap-3">
               <label className="label">Artwork photo<input id="owner-photo" type="file" accept="image/jpeg,image/png,image/webp,image/avif" required onChange={(e) => setPhoto(e.target.files?.[0] || null)} className="mt-2 block w-full text-xs"/></label>
-              {[['title', 'Title'], ['medium', 'Medium'], ['dimensions', 'Canvas size'], ['price', 'Price (INR)'], ['weight_kg', 'Packed weight (kg)']].map(([n, l]) => <label key={n} className="label">{l}<input name={n} value={form[n]} onChange={update} required className="field mt-1" type={['price', 'weight_kg'].includes(n) ? 'number' : 'text'} step={['price', 'weight_kg'].includes(n) ? '0.01' : undefined} min={['price', 'weight_kg'].includes(n) ? '0.01' : undefined}/></label>)}
+              {[['title', 'Title'], ['medium', 'Medium'], ['dimensions', 'Canvas size'], ['price', 'Price (INR)'], ['weight_kg', 'Packed weight (kg)']].map(([n, l]) => <label key={n} className="label">{l}<input name={n} value={form[n]} onChange={update} required className="field mt-1" type={['price', 'weight_kg'].includes(n) ? 'number' : 'text'} step={n === 'weight_kg' ? '0.1' : n === 'price' ? '0.01' : undefined} min={n === 'weight_kg' ? '0.2' : n === 'price' ? '1' : undefined}/></label>)}
               <div className="grid grid-cols-3 gap-2">{['length_cm', 'breadth_cm', 'height_cm'].map((n) => <label key={n} className="label">{n.replace('_cm', '')} cm<input name={n} value={form[n]} onChange={update} required type="number" min="0.1" step="0.1" className="field mt-1"/></label>)}</div>
               <button disabled={busy} className="btn-primary">{busy ? 'Saving…' : 'Publish artwork'} <ArrowUpRight size={15}/></button>
             </form>
@@ -138,7 +138,7 @@ export default function AdminDashboard() {
               const orderPayouts = payouts.filter((p) => p.order_id === o.id);
               return <article key={o.id} className="overflow-hidden rounded-2xl border border-[#e5dccf] bg-[#fffdf8]">
                 <div className="grid gap-4 bg-[#f0e9df] p-4 md:grid-cols-4">
-                  <div><small className="eyebrow">Order reference</small><p className="font-semibold">{o.merchant_order_ref}</p><p className="mt-1 text-xs text-muted">{new Date(o.created_at).toLocaleString('en-IN')}</p></div>
+                  <div><small className="eyebrow">Order reference</small><p className="font-semibold">{o.merchant_order_ref}</p><p className="mt-1 text-xs text-muted">{new Date(o.created_at).toLocaleString('en-IN')}</p>{String(o.status || '').toLowerCase() === 'paid' && <a href={`/invoice/${o.id}`} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-clay underline"><FileText size={12}/> Download / Print Bill</a>}</div>
                   <div><small className="eyebrow">Customer</small><p className="font-semibold">{o.customer_name || o.buyer_name}</p><p className="text-xs">{o.customer_email || o.buyer_email}</p><p className="text-xs">{o.customer_phone || o.buyer_phone}</p></div>
                   <div><small className="eyebrow">Total / Payment</small><p className="font-semibold">{money(o.total_amount ?? o.amount_paise / 100)} · {o.status}</p><p className="text-xs text-muted">Ship: {money(o.shipping_amount ?? o.shipping_price)}</p></div>
                   <div><small className="eyebrow">Artiste commission ledger</small><p className="font-semibold">Platform fee (2%): {money(o.platform_fee)}</p><p className="text-sm font-semibold text-clay">Artist payout (98%): {money(o.artist_payout)}</p><p className="text-xs text-muted">Payout status: {o.payout_status || 'Pending'}</p></div>
