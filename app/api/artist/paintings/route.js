@@ -30,7 +30,11 @@ export async function POST(request) {
     const user = await getUserFromRequest(request);
     const supabase = requireServiceRole();
     const artist = await getArtistForUser(supabase, user.id);
-    if (!artist) return NextResponse.json({ error: 'Create your artist profile before listing a painting.' }, { status: 403 });
+    if (!artist) return NextResponse.json({ error: 'Create your Artist profile before listing an artwork.' }, { status: 403 });
+    if (!artist.is_approved) return NextResponse.json({ error: 'Your Artist profile must be approved before listing an artwork.' }, { status: 403 });
+    const { data: payoutAccount, error: payoutError } = await supabase.from('artist_payout_accounts').select('verified_at').eq('artist_id', artist.id).maybeSingle();
+    if (payoutError) throw payoutError;
+    if (!payoutAccount?.verified_at) return NextResponse.json({ error: 'Complete your IFSC-verified bank / UPI payout details before listing artwork.' }, { status: 403 });
     const form = await request.formData();
     const photo = form.get('photo');
     if (!photo || typeof photo.arrayBuffer !== 'function' || !types.has(photo.type) || photo.size > 8 * 1024 * 1024) return NextResponse.json({ error: 'Upload a JPG, PNG, WEBP, or AVIF painting photo up to 8 MB.' }, { status: 400 });
@@ -49,7 +53,7 @@ export async function POST(request) {
     const imageUrl = supabase.storage.from('paintings').getPublicUrl(uploaded).data.publicUrl;
     const { data, error } = await supabase.from('paintings').insert({
       title, medium, dimensions, ...numeric, image_url: imageUrl, is_sold: false,
-      artist_id: artist.id, artist_name: artist.artist_name, is_approved: false,
+      artist_id: artist.id, artist_name: artist.artist_name, is_approved: false, pickup_pincode: null, pickup_location: 'Primary',
     }).select('*').single();
     if (error) throw error;
     return NextResponse.json({ painting: data, message: 'Artwork submitted for owner approval.' }, { status: 201 });

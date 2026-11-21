@@ -25,10 +25,18 @@ export async function DELETE(_request, { params }) {
   try {
     const { id } = await params;
     const supabase = requireServiceRole();
-    const [{ data: paintings }, { data: artist }] = await Promise.all([
-      supabase.from('paintings').select('id,image_url').eq('artist_id', id),
+    const [{ data: paintings, error: paintingsReadError }, { data: artist, error: artistReadError }, { data: payoutRows, error: payoutReadError }] = await Promise.all([
+      supabase.from('paintings').select('id,image_url,is_sold').eq('artist_id', id),
       supabase.from('artists').select('profile_photo_url').eq('id', id).maybeSingle(),
+      supabase.from('artist_payouts').select('id').eq('artist_id', id).limit(1),
     ]);
+    if (paintingsReadError) throw paintingsReadError;
+    if (artistReadError) throw artistReadError;
+    if (payoutReadError) throw payoutReadError;
+    if (!artist) return NextResponse.json({ error: 'Artist profile not found.' }, { status: 404 });
+    if ((payoutRows || []).length || (paintings || []).some((painting) => painting.is_sold)) {
+      return NextResponse.json({ error: 'This Artist has historical sales or payout records. Suspend the profile instead of deleting it so order and earnings history remain intact.' }, { status: 409 });
+    }
     const paintingMarker = '/storage/v1/object/public/paintings/';
     const paintingPaths = (paintings || []).map((p) => {
       const pos = String(p.image_url || '').indexOf(paintingMarker);

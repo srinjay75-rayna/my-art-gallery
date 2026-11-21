@@ -1,6 +1,6 @@
 {
-  "name": "my-art-gallery",
-  "version": "1.0.0",
+  "name": "artiste-art-store",
+  "version": "3.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",

@@ -1,20 +1,60 @@
 "use client";
 import { useEffect, useState } from 'react';
 import { getBrowserSupabase } from '@/lib/supabase-browser';
-const blank={full_name:'',phone:'',address:'',city:'',state:'',pincode:''};
-const money=v=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(Number(v||0));
-export default function AccountPage(){
- const [supabase,setSupabase]=useState(null),[session,setSession]=useState(null),[mode,setMode]=useState('login'),[email,setEmail]=useState(''),[password,setPassword]=useState('');
- const [tab,setTab]=useState('My Orders'),[profile,setProfile]=useState(blank),[orders,setOrders]=useState([]),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
- useEffect(()=>{try{const c=getBrowserSupabase();setSupabase(c);c.auth.getSession().then(({data})=>setSession(data.session));const {data:{subscription}}=c.auth.onAuthStateChange((_e,s)=>setSession(s));return()=>subscription.unsubscribe()}catch(e){setError(e.message)}},[]);
- async function load(s=session){if(!s)return;const r=await fetch('/api/account',{headers:{Authorization:`Bearer ${s.access_token}`}});const d=await r.json();if(!r.ok)throw new Error(d.error||'Could not load account');if(d.profile)setProfile({...blank,...d.profile});else setProfile({...blank,full_name:s.user.user_metadata?.full_name||''});setOrders(d.orders||[])}
- useEffect(()=>{if(session)load(session).catch(e=>setError(e.message));},[session]);
- async function auth(e){e.preventDefault();setBusy(true);setError('');setNotice('');try{const result=mode==='signup'?await supabase.auth.signUp({email,password,options:{emailRedirectTo:window.location.origin+'/account'}}):await supabase.auth.signInWithPassword({email,password});if(result.error)throw result.error;if(mode==='signup'&&!result.data.session)setNotice('Account created. Confirm your email, then return here to log in.');else setNotice('Welcome to Artiste.');}catch(e){setError(e.message)}finally{setBusy(false)}}
- async function save(e){e.preventDefault();setBusy(true);setError('');setNotice('');try{const r=await fetch('/api/account',{method:'PATCH',headers:{'Content-Type':'application/json',Authorization:`Bearer ${session.access_token}`},body:JSON.stringify(profile)});const d=await r.json();if(!r.ok)throw new Error(d.error||'Could not save details.');setProfile({...blank,...d.profile});setNotice('Your details have been saved.')}catch(e){setError(e.message)}finally{setBusy(false)}}
- async function logout(){await supabase.auth.signOut();setOrders([]);setProfile(blank)}
- return <main className="paper-grain min-h-screen px-5 py-8 md:px-10"><div className="mx-auto max-w-6xl"><header className="mb-10 flex items-center justify-between"><a href="/" className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-full border border-clay/40 font-display text-xl text-clay">A</span><span className="font-display text-2xl">Artiste</span></a><a href="/" className="text-xs font-bold uppercase tracking-wider text-clay">← Continue shopping</a></header><p className="eyebrow">Your Artiste account</p><h1 className="mt-2 font-display text-5xl">A home for your <em className="font-normal text-clay">art stories.</em></h1>
- {error&&<p className="mt-6 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}{notice&&<p className="mt-6 rounded-xl bg-green-50 p-3 text-sm text-green-800">{notice}</p>}
- {!session?<section className="mt-8 max-w-lg rounded-3xl border border-[#e5dccf] bg-[#fffdf8] p-7 shadow-soft"><div className="mb-5 flex gap-2">{['login','signup'].map(m=><button key={m} onClick={()=>setMode(m)} className={`rounded-full px-4 py-2 text-xs font-bold uppercase tracking-wider ${mode===m?'bg-ink text-white':'border border-[#d9cfc1]'}`}>{m==='login'?'Login':'Sign up'}</button>)}</div><form onSubmit={auth} className="grid gap-4"><label className="label">Email<input type="email" required className="field mt-1" value={email} onChange={e=>setEmail(e.target.value)}/></label><label className="label">Password<input type="password" minLength={8} required className="field mt-1" value={password} onChange={e=>setPassword(e.target.value)}/></label><button disabled={busy||!supabase} className="btn-primary">{busy?'Please wait…':mode==='login'?'Login':'Create account'} ↗</button></form><p className="mt-4 text-xs leading-5 text-muted">Use the same account for purchases and order history. Email confirmation may be required depending on your Supabase Auth settings.</p></section>:<><div className="mt-7 flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-muted">Signed in as <b className="text-ink">{session.user.email}</b></p><button className="action-btn" onClick={logout}>Sign out</button></div><div className="mt-6 flex gap-2">{['My Orders','My Details'].map(t=><button key={t} onClick={()=>setTab(t)} className={`rounded-full px-5 py-2 text-xs font-bold uppercase tracking-wider ${tab===t?'bg-ink text-white':'border border-[#d9cfc1]'}`}>{t}</button>)}</div>
- {tab==='My Orders'?<section className="mt-5 grid gap-4">{orders.map(o=><article key={o.id} className="rounded-2xl border border-[#e5dccf] bg-[#fffdf8] p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="eyebrow">{o.merchant_order_ref}</p><h2 className="mt-1 font-display text-2xl">{o.painting_title}</h2><p className="mt-1 text-xs text-muted">Placed {new Date(o.created_at).toLocaleString('en-IN')}</p></div><span className="pill">{String(o.status||'pending').replaceAll('_',' ')}</span></div><div className="mt-4 grid gap-3 border-t border-[#eee6db] pt-4 sm:grid-cols-3"><div><small className="eyebrow">Total paid</small><p className="mt-1 font-semibold">{money(o.amount_paise/100)}</p></div><div><small className="eyebrow">Courier</small><p className="mt-1 font-semibold">{o.courier_name||'Being assigned'}</p></div><div><small className="eyebrow">Shiprocket tracking ID</small><p className="mt-1 break-all font-semibold">{o.shiprocket_awb_code||o.shiprocket_shipment_id||'Awaiting dispatch'}</p></div></div>{o.shipment_note&&<p className="mt-3 text-xs text-muted">Shipping update: {o.shipment_note}</p>}</article>)}{!orders.length&&<div className="rounded-2xl border border-dashed border-[#cfc2b1] p-12 text-center"><h2 className="font-display text-2xl">No orders yet</h2><p className="mt-2 text-sm text-muted">Your Artiste purchases will appear here.</p><a href="/#gallery" className="btn-primary mt-5">Explore the collection ↗</a></div>}</section>:<section className="mt-5 max-w-2xl rounded-3xl border border-[#e5dccf] bg-[#fffdf8] p-6 shadow-soft"><h2 className="mb-5 font-display text-3xl">My Details</h2><form onSubmit={save} className="grid gap-4 sm:grid-cols-2">{[['full_name','Full name'],['phone','Phone'],['address','Shipping address'],['city','City'],['state','State'],['pincode','6-digit PIN code']].map(([n,l])=><label className={`label ${n==='address'?'sm:col-span-2':''}`} key={n}>{l}<input className="field mt-1" value={profile[n]} onChange={e=>setProfile({...profile,[n]:e.target.value})} required maxLength={n==='address'?250:100}/></label>)}<button disabled={busy} className="btn-primary sm:col-span-2">{busy?'Saving…':'Save details'} ↗</button></form></section>}</>}
- <p className="mt-14 text-center text-[9px] uppercase tracking-[.2em] text-muted">Artiste · Customer account</p></div></main>
+import { hasEmailOtpSession } from '@/lib/client-auth';
+import EmailOtpAuth from '@/components/EmailOtpAuth';
+import IndianAddressForm from '@/components/IndianAddressForm';
+const blank = { full_name: '', phone: '', address: '', landmark: '', locality: '', city: '', state: '', pincode: '' };
+const money = (v) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Number(v || 0));
+export default function AccountPage() {
+  const [session, setSession] = useState(null);
+  const [tab, setTab] = useState('My Orders');
+  const [profile, setProfile] = useState(blank);
+  const [orders, setOrders] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  useEffect(() => {
+    try {
+      const client = getBrowserSupabase();
+      const acceptSession = (value) => {
+        if (value && !hasEmailOtpSession(value)) { setSession(null); setTimeout(() => client.auth.signOut(), 0); return; }
+        setSession(value || null);
+      };
+      client.auth.getSession().then(({ data }) => acceptSession(data.session || null));
+      const { data: { subscription } } = client.auth.onAuthStateChange((_event, value) => acceptSession(value));
+      return () => subscription.unsubscribe();
+    } catch (err) { setError(err.message); }
+  }, []);
+  async function load(current = session) {
+    if (!current) return;
+    const response = await fetch('/api/account', { headers: { Authorization: `Bearer ${current.access_token}` } });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Could not load Customer account.');
+    setProfile({ ...blank, ...(data.profile || {}) }); setOrders(data.orders || []);
+  }
+  useEffect(() => { if (session) load(session).catch((err) => setError(err.message)); else { setOrders([]); setProfile(blank); } }, [session]);
+  async function save(event) {
+    event.preventDefault(); setBusy(true); setError(''); setNotice('');
+    try {
+      const response = await fetch('/api/account', { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify(profile) });
+      const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Could not save details.');
+      setProfile({ ...blank, ...data.profile }); setNotice('Your Customer details have been saved.');
+    } catch (err) { setError(err.message); }
+    finally { setBusy(false); }
+  }
+  async function logout() { await getBrowserSupabase().auth.signOut(); setSession(null); setOrders([]); setProfile(blank); setNotice('You have been signed out.'); }
+  function updateProfile(patch) { setProfile((current) => ({ ...current, ...patch })); }
+
+  return <main className="paper-grain min-h-screen px-5 py-8 md:px-10"><div className="mx-auto max-w-6xl">
+    <header className="mb-10 flex items-center justify-between"><a href="/" className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-full border border-clay/40 font-display text-xl text-clay">A</span><span className="font-display text-2xl">Artiste</span></a><a href="/" className="text-xs font-bold uppercase tracking-wider text-clay">← Continue shopping</a></header>
+    <p className="eyebrow">For Customers <span className="cedilla-mark">¸</span></p><h1 className="mt-2 font-display text-5xl">A home for your <em className="font-normal text-clay">art stories.</em></h1>
+    {error && <p className="mt-6 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}{notice && <p className="mt-6 rounded-xl bg-green-50 p-3 text-sm text-green-800">{notice}</p>}
+    {!session ? <div className="mt-8 max-w-xl"><EmailOtpAuth accountType="customer" onVerified={(value) => { setSession(value); setNotice('Your email is verified. Complete My Details before checkout.'); }} /></div> : <>
+      <div className="mt-7 flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-muted">Verified Customer <b className="text-ink">{session.user.email}</b></p><button className="action-btn" onClick={logout}>Sign out</button></div>
+      <div className="mt-6 flex gap-2">{['My Orders', 'My Details'].map((name) => <button key={name} onClick={() => setTab(name)} className={`rounded-full px-5 py-2 text-xs font-bold uppercase tracking-wider ${tab === name ? 'bg-ink text-white' : 'border border-[#d9cfc1]'}`}>{name}</button>)}</div>
+      {tab === 'My Orders' ? <section className="mt-5 grid gap-4">{orders.map((order) => <article key={order.id} className="rounded-2xl border border-[#e5dccf] bg-[#fffdf8] p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="eyebrow">{order.merchant_order_ref}</p><h2 className="mt-1 font-display text-2xl">{order.painting_title || `${Array.isArray(order.items) ? order.items.length : 0} artworks`}</h2><p className="mt-1 text-xs text-muted">Placed {new Date(order.created_at).toLocaleString('en-IN')}</p></div><span className="pill">{order.status || 'Pending'}</span></div><div className="mt-4 grid gap-3 border-t border-[#eee6db] pt-4 sm:grid-cols-2"><div><small className="eyebrow">Total paid</small><p className="mt-1 font-semibold">{money(order.total_amount ?? order.amount_paise / 100)}</p></div><div><small className="eyebrow">Overall shipment status</small><p className="mt-1 font-semibold">{order.shipment_status || 'Processing'}</p></div></div>{order.shipments?.length ? <div className="mt-4 border-t border-[#eee6db] pt-4"><h3 className="font-display text-xl">Courier &amp; tracking</h3><div className="mt-3 grid gap-3 md:grid-cols-2">{order.shipments.map((shipment) => <div key={shipment.id} className="rounded-xl bg-[#f7f1e8] p-3 text-xs leading-5"><b>{shipment.courier_name || 'Courier being assigned'}</b><p>Tracking / AWB: <span className="break-all font-semibold">{shipment.awb_code || shipment.shiprocket_shipment_id || 'Awaiting dispatch'}</span></p><p>Shipment status: {shipment.shipment_status || 'Processing'}</p>{shipment.shipment_note && <p className="mt-1 text-muted">{shipment.shipment_note}</p>}</div>)}</div></div> : <div className="mt-4 grid gap-3 border-t border-[#eee6db] pt-4 sm:grid-cols-2"><div><small className="eyebrow">Courier</small><p className="mt-1 font-semibold">{order.courier_name || 'Being assigned'}</p></div><div><small className="eyebrow">Shiprocket tracking ID</small><p className="mt-1 break-all font-semibold">{order.shiprocket_awb_code || order.shiprocket_shipment_id || 'Awaiting dispatch'}</p></div></div>}{order.shipment_note && <p className="mt-3 text-xs text-muted">Shipping update: {order.shipment_note}</p>}</article>)}{!orders.length && <div className="rounded-2xl border border-dashed border-[#cfc2b1] p-12 text-center"><h2 className="font-display text-2xl">No orders yet</h2><p className="mt-2 text-sm text-muted">Your successful Artiste purchases will appear here.</p><a href="/#gallery" className="btn-primary mt-5">Explore the collection ↗</a></div>}</section> : <section className="mt-5 max-w-3xl rounded-3xl border border-[#e5dccf] bg-[#fffdf8] p-6 shadow-soft"><h2 className="mb-2 font-display text-3xl">My Details</h2><p className="mb-5 text-xs leading-5 text-muted">These saved details are used at checkout. Your address and order history are private to your account.</p><form onSubmit={save} className="grid gap-4"><IndianAddressForm value={profile} onChange={updateProfile} showContact /><button disabled={busy} className="btn-primary">{busy ? 'Saving…' : 'Save Customer details'} ↗</button></form></section>}
+    </>}
+    <p className="mt-14 text-center text-[9px] uppercase tracking-[.2em] text-muted">Artiste · Customer account</p>
+  </div></main>;
 }
