@@ -91,7 +91,7 @@ export default function AdminPage() {
   return (
     <main className="paper-grain min-h-screen px-4 py-8 sm:px-8">
       <div className="mx-auto max-w-6xl">
-        <header className="mb-10 flex items-center justify-between"><a href="/" className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-full border border-clay/40 font-display text-xl text-clay">R</span><span><span className="block font-display text-2xl">Artistẻ</span><span className="block text-[8px] uppercase tracking-[.25em] text-muted">Artist studio</span></span></a><a href="/" className="text-[10px] font-bold uppercase tracking-[.16em] text-clay">← View gallery</a></header>
+        <header className="mb-10 flex items-center justify-between"><a href="/" className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-full border border-clay/40 font-display text-xl text-clay">R</span><span><span className="block font-display text-2xl">rangrekha</span><span className="block text-[8px] uppercase tracking-[.25em] text-muted">Artist studio</span></span></a><a href="/" className="text-[10px] font-bold uppercase tracking-[.16em] text-clay">← View gallery</a></header>
         {!loggedIn ? (
           <section className="mx-auto max-w-md rounded-3xl border border-[#e5dccf] bg-[#fffdf8] p-8 shadow-soft sm:p-10"><p className="text-[10px] font-bold uppercase tracking-[.22em] text-clay">Private workspace</p><h1 className="mt-3 font-display text-4xl">Studio access</h1><p className="mt-3 text-sm leading-6 text-muted">Sign in to upload new work and manage availability in the public gallery.</p><form onSubmit={login} className="mt-8"><label className="label" htmlFor="admin-password">Admin password</label><input id="admin-password" type="password" className="field" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required/><button disabled={busy} className="btn-primary mt-5 w-full">{busy ? 'Signing in…' : 'Enter studio'} <span>↗</span></button></form>{error && <p className="mt-4 rounded-lg bg-[#f9e8e3] p-3 text-xs text-[#9a3d2c]">{error}</p>}</section>
         ) : (
@@ -116,7 +116,7 @@ export default function AdminPage() {
             </div>
           </>
         )}
-        <p className="mt-12 text-center text-[9px] uppercase tracking-[.2em] text-[#9c9184]">Artistẻ · Private artist studio</p>
+        <p className="mt-12 text-center text-[9px] uppercase tracking-[.2em] text-[#9c9184]">Rangrekha · Private artist studio</p>
       </div>
     </main>
   );

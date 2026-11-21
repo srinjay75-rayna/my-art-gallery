@@ -2,7 +2,7 @@ import './globals.css';
 import Script from 'next/script';
 
 export const metadata = {
-  title: 'Artistẻ — Original Indian Art',
+  title: 'Rangrekha — Original Indian Art',
   description: 'Discover original paintings and one-of-a-kind works by independent Indian artists.',
 };
 
