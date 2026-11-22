@@ -39,13 +39,13 @@ const STARTERS = [
 ];
 
 const GOODBYE_PATTERN =
-  /\b(bye(?:\s+bye)?|goodbye|good\s*night|see you(?: later)?|you can leave|close(?: the| this)? chat|close the window|talk later|that's all|that is all|that's enough|done for now|i am done|i'm done|nothing else|no more help)\b/i;
+  /\b(bye(?:\s+bye)?|goodbye|good\s*night|see you(?: later)?|you can leave|close(?: the| this)? chat|close the window|talk later|that's all|that is all|that's enough|done for now|i am done|i'm done|nothing else)\b/i;
 
 function clientFallback(message) {
   const q = String(message || '').toLowerCase();
 
   if (GOODBYE_PATTERN.test(q)) {
-    return 'It was lovely helping you today. Thank you for visiting Artiste, and do come back whenever you feel like exploring something beautiful. Take care!';
+    return 'It was lovely helping you today. Thank you for visiting Artiste. Do come back whenever you feel like exploring something beautiful. Take care!';
   }
 
   if (/track|order|bill|bos-ar|awb|dispatch/.test(q)) {
@@ -94,7 +94,14 @@ export default function ChatWidget() {
   const [avatarFailed, setAvatarFailed] = useState(false);
 
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState([]);
+
+  const [messages, setMessages] = useState([
+    {
+      role: 'assistant',
+      content: INITIAL_GREETING,
+    },
+  ]);
+
   const [sending, setSending] = useState(false);
   const [mode, setMode] = useState('');
 
@@ -197,7 +204,7 @@ export default function ChatWidget() {
 
     } catch (error) {
       console.error(
-        'Rayna chat request failed in the browser:',
+        'Rayna browser request failed:',
         error?.message || error
       );
 
@@ -217,9 +224,6 @@ export default function ChatWidget() {
         content: reply,
       },
     ].slice(-MAX_HISTORY));
-
-    // Goodbye still goes to Gemini first.
-    // Minimise the drawer 1.5 seconds after Rayna responds.
 
     if (GOODBYE_PATTERN.test(cleaned)) {
       farewellTimerRef.current = window.setTimeout(() => {
@@ -262,6 +266,7 @@ export default function ChatWidget() {
       className="site-chrome concierge-widget fixed bottom-4 right-4 z-50"
       aria-live="polite"
     >
+
       <style jsx global>{`
         @keyframes rayna-shoulder-wave {
           0% {
@@ -312,10 +317,42 @@ export default function ChatWidget() {
           animation: rayna-greeting-appear 450ms ease-out both;
         }
 
+        @keyframes rayna-typing-dot {
+          0%,
+          60%,
+          100% {
+            opacity: 0.3;
+            transform: translateY(0);
+          }
+
+          30% {
+            opacity: 1;
+            transform: translateY(-3px);
+          }
+        }
+
+        .rayna-typing-dot {
+          display: inline-block;
+          width: 4px;
+          height: 4px;
+          border-radius: 9999px;
+          background: currentColor;
+          animation: rayna-typing-dot 1s infinite ease-in-out;
+        }
+
+        .rayna-typing-dot:nth-child(2) {
+          animation-delay: 150ms;
+        }
+
+        .rayna-typing-dot:nth-child(3) {
+          animation-delay: 300ms;
+        }
+
         @media (prefers-reduced-motion: reduce) {
           .rayna-portrait,
           .rayna-character:hover .rayna-portrait,
-          .rayna-greeting {
+          .rayna-greeting,
+          .rayna-typing-dot {
             animation: none !important;
             transform: none !important;
           }
@@ -323,19 +360,18 @@ export default function ChatWidget() {
       `}</style>
 
       {/* ======================================
-          VIEWPORT-LOCKED CHAT DRAWER
-          Standing Rayna portrait is hidden
-          while this drawer is open.
+          VIEWPORT-LOCKED CHAT WINDOW
       ====================================== */}
 
       {open && (
         <section
-          className="fixed bottom-4 right-4 z-50 flex h-[min(680px,80vh)] w-[360px] max-w-[92vw] max-h-[80vh] flex-col overflow-hidden rounded-[24px] border border-[#D9C6A6] bg-[#FAF6F0] shadow-[0_24px_80px_rgba(38,56,50,.25)]"
+          className="fixed bottom-4 right-4 z-50 flex w-[360px] max-w-[92vw] max-h-[80vh] flex-col overflow-hidden rounded-[24px] border border-[#D9C6A6] bg-[#FAF6F0] shadow-[0_24px_80px_rgba(38,56,50,.25)]"
           aria-label="Rayna — Artiste AI Assistant"
           role="dialog"
           aria-modal="false"
         >
-          {/* Sticky header with always-visible close button */}
+
+          {/* Sticky header */}
 
           <header className="sticky top-0 z-20 flex shrink-0 items-center justify-between gap-3 border-b border-[#D9C6A6] bg-[#263832] px-4 py-3.5 text-[#FAF6F0]">
 
@@ -367,7 +403,7 @@ export default function ChatWidget() {
                   Rayna
                 </b>
 
-                <small className="mt-1.5 block text-[9px] uppercase tracking-[.16em] text-[#D7C5B1]">
+                <small className="mt-1.5 block text-[9px] tracking-[.12em] text-[#D7C5B1]">
                   Rayna · AI Assistant
                 </small>
 
@@ -387,34 +423,12 @@ export default function ChatWidget() {
 
           </header>
 
-          {/* Scrollable conversation */}
+          {/* Scrollable messages */}
 
           <div
-            className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5"
+            className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-4"
             aria-live="polite"
           >
-
-            <div className="max-w-[92%] rounded-2xl rounded-tl-sm border border-[#E3D7C8] bg-white/85 px-3.5 py-3 text-[12px] leading-6 text-[#35453D] shadow-sm">
-              {INITIAL_GREETING}
-            </div>
-
-            {messages.length === 0 && (
-              <div className="flex flex-wrap gap-2 pt-1">
-
-                {STARTERS.map(({ label, icon: Icon, text }) => (
-                  <button
-                    key={label}
-                    type="button"
-                    onClick={() => ask(text)}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-[#D9C6A6] bg-[#F3ECE1] px-3 py-2 text-[10px] font-medium text-[#53615A] transition hover:border-[#B85D3B] hover:text-[#B85D3B]"
-                  >
-                    <Icon size={12} />
-                    {label}
-                  </button>
-                ))}
-
-              </div>
-            )}
 
             {messages.map((message, index) => (
               <div
@@ -437,13 +451,49 @@ export default function ChatWidget() {
               </div>
             ))}
 
+            {/* Animated typing indicator */}
+
             {sending && (
-              <div className="flex items-center gap-2 text-[10px] text-[#85786A]">
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#F3ECE1] text-[#B85D3B]">
-                  <Sparkles size={12} />
+              <div
+                className="flex items-center gap-2 text-[11px] text-[#85786A]"
+                role="status"
+                aria-label="Rayna is typing"
+              >
+
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#F3ECE1] text-[#B85D3B]">
+                  <Sparkles size={13} />
                 </span>
 
-                Rayna is checking the gallery…
+                <span className="font-medium">
+                  Rayna is typing
+                </span>
+
+                <span className="inline-flex items-center gap-1">
+                  <span className="rayna-typing-dot" />
+                  <span className="rayna-typing-dot" />
+                  <span className="rayna-typing-dot" />
+                </span>
+
+              </div>
+            )}
+
+            {/* Starter suggestions */}
+
+            {messages.length === 1 && !sending && (
+              <div className="flex flex-wrap gap-2 pt-1">
+
+                {STARTERS.map(({ label, icon: Icon, text }) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => ask(text)}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-[#D9C6A6] bg-[#F3ECE1] px-3 py-2 text-[10px] font-medium text-[#53615A] transition hover:border-[#B85D3B] hover:text-[#B85D3B]"
+                  >
+                    <Icon size={12} />
+                    {label}
+                  </button>
+                ))}
+
               </div>
             )}
 
@@ -451,9 +501,9 @@ export default function ChatWidget() {
 
           </div>
 
-          {/* Sticky footer and input */}
+          {/* Sticky composer and contact links */}
 
-          <div className="sticky bottom-0 z-20 shrink-0 border-t border-[#E3D7C8] bg-[#F7F1E8] px-3.5 pb-3.5 pt-3 sm:px-4">
+          <div className="sticky bottom-0 z-20 shrink-0 border-t border-[#E3D7C8] bg-[#F7F1E8] px-3.5 pb-3.5 pt-3">
 
             <form
               onSubmit={handleSubmit}
@@ -531,12 +581,13 @@ export default function ChatWidget() {
             </div>
 
           </div>
+
         </section>
       )}
 
       {/* ======================================
           FLOATING RAYNA PORTRAIT
-          Hidden while chat is open.
+          Hidden while the drawer is open.
       ====================================== */}
 
       {!open && (
@@ -555,7 +606,6 @@ export default function ChatWidget() {
                 onClick={() => setGreetingDismissed(true)}
                 className="-mr-1 -mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[#9A8874] transition hover:bg-[#F0E8DC] hover:text-[#B85D3B]"
                 aria-label="Dismiss Rayna greeting"
-                title="Dismiss"
               >
                 <X size={12} />
               </button>
