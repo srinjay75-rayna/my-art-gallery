@@ -71,8 +71,8 @@ export async function POST(request) {
 
     // These identifier-only limits protect an email even when requests arrive
     // concurrently from several IP addresses / devices.
-    const emailBurst = await enforceRateLimit(request, { scope: 'otp-send-email-minute', identifier: email, limit: 1, windowSeconds: 60 });
-    if (!emailBurst.allowed) return rateLimitJsonResponse(NextResponse, emailBurst, 'Please wait one minute before requesting another code.');
+    const emailBurst = await enforceRateLimit(request, { scope: 'otp-send-email-30sec', identifier: email, limit: 1, windowSeconds: 30 });
+    if (!emailBurst.allowed) return rateLimitJsonResponse(NextResponse, emailBurst, 'Please wait 30 seconds before requesting another code.');
     const emailHourly = await enforceRateLimit(request, { scope: 'otp-send-email-hour', identifier: email, limit: 5, windowSeconds: 60 * 60 });
     if (!emailHourly.allowed) return rateLimitJsonResponse(NextResponse, emailHourly, 'Too many codes have been requested for this email. Please try again later.');
 
@@ -94,8 +94,8 @@ export async function POST(request) {
     if ((recentEmail || []).length >= 5) {
       return NextResponse.json({ error: 'Too many codes have been requested for this email. Please try again later.' }, { status: 429 });
     }
-    if (recentEmail?.[0]?.created_at && now - new Date(recentEmail[0].created_at).getTime() < 60 * 1000) {
-      return NextResponse.json({ error: 'Please wait one minute before requesting another code.' }, { status: 429 });
+    if (recentEmail?.[0]?.created_at && now - new Date(recentEmail[0].created_at).getTime() < 30 * 1000) {
+      return NextResponse.json({ error: 'Please wait 30 seconds before requesting another code.' }, { status: 429, headers: { 'Retry-After': '30' } });
     }
     if ((recentIp || []).length >= 20) {
       return NextResponse.json({ error: 'Too many verification requests from this connection. Please try again later.' }, { status: 429 });
@@ -140,7 +140,7 @@ export async function POST(request) {
       html: `<!doctype html><html><body style="margin:0;background:#f6f1e9;font-family:Arial,sans-serif;color:#2e2924;padding:28px 12px"><div style="max-width:520px;margin:0 auto;background:#F3ECE1;border:1px solid #e6ddd1;border-radius:18px;padding:32px"><div style="font-family:Georgia,serif;font-size:26px;letter-spacing:.08em">Artiste</div><p style="color:#756b60;font-size:13px;margin:22px 0 8px">${safeName === 'there' ? 'Your secure verification code' : `Hello ${safeName},`}</p><h1 style="font-size:22px;font-weight:500;margin:0">Confirm your email</h1><p style="font-size:14px;line-height:1.6;color:#756b60">Use this 6-digit code to continue to your ${portalName.toLowerCase()}. You do not need to open a link or leave your current browser tab.</p><div style="margin:26px 0;padding:18px;background:#f4e9dc;border-radius:12px;text-align:center;font-size:32px;font-weight:700;letter-spacing:10px">${code}</div><p style="font-size:12px;line-height:1.6;color:#756b60">This code expires in <strong>10 minutes</strong> and can be used only once. Never share it with anyone, including Artiste support.</p><hr style="border:0;border-top:1px solid #eee5d9;margin:24px 0"><p style="font-size:11px;color:#93897e">If you did not request this code, you can safely ignore this email.</p></div></body></html>`,
     });
 
-    return NextResponse.json({ sent: true, expiresInSeconds: 600, message: 'A 6-digit code has been sent to your email.' });
+    return NextResponse.json({ sent: true, expiresInSeconds: 600, resendAfterSeconds: 30, message: 'A 6-digit code has been sent to your email.' });
   } catch (error) {
     if (otpRowId) {
       try { await requireServiceRole().from('email_otps').update({ used_at: new Date().toISOString() }).eq('id', otpRowId); } catch {}

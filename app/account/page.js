@@ -34,28 +34,74 @@ export default function AccountPage() {
   useEffect(() => {
     let active = true;
     let subscription;
-    try {
-      const client = getBrowserSupabase();
-      client.auth.getSession().then(({ data }) => {
+    const client = getBrowserSupabase();
+
+    const acceptSession = async (value) => {
+      if (!active) return;
+      if (!value) {
+        setSession(null);
+        return;
+      }
+      if (!hasEmailOtpSession(value)) {
+        setSession(null);
+        setTimeout(() => client.auth.signOut(), 0);
+        return;
+      }
+
+      try {
+        // The server verifies actual Customer profile membership and selects
+        // the Customer portal. This avoids trusting stale single-role metadata
+        // when the same verified email also owns an Artist profile.
+        const response = await fetch('/api/auth/select-portal', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${value.access_token}`,
+          },
+          body: JSON.stringify({ accountType: 'customer' }),
+          cache: 'no-store',
+        });
+        const result = await response.json().catch(() => ({}));
         if (!active) return;
-        const value = data.session || null;
-        if (value && (!hasEmailOtpSession(value) || value.user?.user_metadata?.account_type === 'artist')) {
-          client.auth.signOut();
+        if (!response.ok) {
           setSession(null);
-        } else setSession(value);
-        setAuthLoading(false);
-      }).catch((err) => { if (active) { setError(err.message); setAuthLoading(false); } });
+          setError(result.error || 'This email does not have a Customer profile.');
+          setTimeout(() => client.auth.signOut(), 0);
+          return;
+        }
+        setSession(value);
+      } catch (err) {
+        if (!active) return;
+        setSession(null);
+        setError(err.message || 'Could not verify your Customer portal. Please sign in again.');
+      }
+    };
+
+    try {
+      client.auth.getSession().then(async ({ data }) => {
+        await acceptSession(data.session || null);
+        if (active) setAuthLoading(false);
+      }).catch((err) => {
+        if (active) {
+          setError(err.message);
+          setAuthLoading(false);
+        }
+      });
       const auth = client.auth.onAuthStateChange((event, value) => {
         if (!active) return;
-        if (value && (!hasEmailOtpSession(value) || value.user?.user_metadata?.account_type === 'artist')) {
-          setSession(null);
-          setTimeout(() => client.auth.signOut(), 0);
-        } else setSession(value || null);
+        void acceptSession(value || null);
         if (event !== 'TOKEN_REFRESHED' && event !== 'USER_UPDATED') setAuthLoading(false);
       });
       subscription = auth.data.subscription;
-    } catch (err) { setError(err.message); setAuthLoading(false); }
-    return () => { active = false; subscription?.unsubscribe(); };
+    } catch (err) {
+      setError(err.message);
+      setAuthLoading(false);
+    }
+
+    return () => {
+      active = false;
+      subscription?.unsubscribe();
+    };
   }, []);
 
   const loadAccount = useCallback(async (current) => {

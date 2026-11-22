@@ -16,20 +16,13 @@ export async function GET(request) {
     const { data: foundArtist, error } = await supabase.from('artists').select('*').eq('user_id', user.id).maybeSingle();
     if (error) throw error;
     let artist = foundArtist || null;
+    // V11 creates an Artist draft atomically during the successful OTP sign-up.
+    // Do not auto-create one from user_metadata: that would let a Customer-only
+    // Auth session cross into the Artist portal without Artist membership.
     if (!artist) {
-      const metadata = user.user_metadata || {};
-      const creatorRole = metadata.creator_role === 'Photographer' ? 'Photographer' : 'Painter';
-      const draftName = String(metadata.artist_name || metadata.full_name || 'Artist').replace(/[\u0000-\u001F\u007F]/g, ' ').trim().slice(0, 100) || 'Artist';
-      const { data: draft, error: draftError } = await supabase.from('artists').upsert({
-        user_id: user.id,
-        email: String(user.email || '').toLowerCase(),
-        artist_name: draftName,
-        creator_role: creatorRole,
-        is_approved: false,
-        is_suspended: false,
-      }, { onConflict: 'user_id' }).select('*').single();
-      if (draftError) throw draftError;
-      artist = draft;
+      return NextResponse.json({
+        error: 'No Artist profile is registered for this email. Sign up through the Artist Portal first.',
+      }, { status: 403 });
     }
     let ledger = [];
     let payoutAccount = null;
@@ -83,7 +76,10 @@ export async function POST(request) {
     const supabase = requireServiceRole();
     const { data: existing, error: existingError } = await supabase.from('artists').select('id,profile_photo_url,avatar_url,is_approved,is_suspended,creator_role').eq('user_id', user.id).maybeSingle();
     if (existingError) throw existingError;
-    let profilePhotoUrl = existing?.avatar_url || existing?.profile_photo_url || '';
+    if (!existing) {
+      return NextResponse.json({ error: 'No Artist profile is registered for this email. Sign up through the Artist Portal first.' }, { status: 403 });
+    }
+    let profilePhotoUrl = existing.avatar_url || existing.profile_photo_url || '';
     if (photo && typeof photo.arrayBuffer === 'function' && photo.size > 0) {
       if (!types.has(photo.type) || photo.size > 6 * 1024 * 1024) return NextResponse.json({ error: 'Use a JPG, PNG, WEBP, or AVIF profile photo up to 6 MB.' }, { status: 400 });
       uploaded = `${user.id}/${crypto.randomUUID()}.${ext[photo.type]}`;

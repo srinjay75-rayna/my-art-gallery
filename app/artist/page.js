@@ -49,34 +49,74 @@ export default function ArtistPage() {
   const [notice, setNotice] = useState('');
 
   useEffect(() => {
+    let active = true;
+    let subscription;
     try {
       const client = getBrowserSupabase();
-      const acceptSession = (value) => {
-        if (value && (!hasEmailOtpSession(value) || value.user?.user_metadata?.account_type === 'customer')) {
+      const acceptSession = async (value) => {
+        if (!active) return;
+        if (!value) {
+          setSession(null);
+          return;
+        }
+        if (!hasEmailOtpSession(value)) {
           setSession(null);
           setTimeout(() => client.auth.signOut(), 0);
           return;
         }
-        setSession(value || null);
+
+        try {
+          // Verify Artist profile membership server-side instead of relying on
+          // possibly stale Auth metadata from a Customer session.
+          const response = await fetch('/api/auth/select-portal', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${value.access_token}`,
+            },
+            body: JSON.stringify({ accountType: 'artist' }),
+            cache: 'no-store',
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!active) return;
+          if (!response.ok) {
+            setSession(null);
+            setError(result.error || 'This email does not have an Artist profile.');
+            setTimeout(() => client.auth.signOut(), 0);
+            return;
+          }
+          setSession(value);
+        } catch (err) {
+          if (!active) return;
+          setSession(null);
+          setError(err.message || 'Could not verify your Artist portal. Please sign in again.');
+        }
       };
-      client.auth.getSession().then(({ data }) => {
-        acceptSession(data.session || null);
-        setAuthLoading(false);
+
+      client.auth.getSession().then(async ({ data }) => {
+        await acceptSession(data.session || null);
+        if (active) setAuthLoading(false);
       }).catch((err) => {
-        setError(err.message || 'Could not restore your Artist session.');
-        setAuthLoading(false);
+        if (active) {
+          setError(err.message || 'Could not restore your Artist session.');
+          setAuthLoading(false);
+        }
       });
-      const { data: { subscription } } = client.auth.onAuthStateChange((event, value) => {
-        // Refreshing a token is not a new page load. Keep the current portal
-        // mounted and update only the access token/session object.
-        acceptSession(value || null);
+
+      const { data: { subscription: authSubscription } } = client.auth.onAuthStateChange((event, value) => {
+        void acceptSession(value || null);
         if (event !== 'TOKEN_REFRESHED' && event !== 'USER_UPDATED') setAuthLoading(false);
       });
-      return () => subscription.unsubscribe();
+      subscription = authSubscription;
     } catch (err) {
       setError(err.message);
       setAuthLoading(false);
     }
+
+    return () => {
+      active = false;
+      subscription?.unsubscribe();
+    };
   }, []);
 
   const authHeaders = () => ({ Authorization: `Bearer ${session?.access_token || ''}` });

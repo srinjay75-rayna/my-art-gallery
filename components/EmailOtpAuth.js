@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowRight,
@@ -24,6 +24,7 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
   const router = useRouter();
   const [mode, setMode] = useState('login');
   const [loginMethod, setLoginMethod] = useState('password');
+  const [resetPasswordFlow, setResetPasswordFlow] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -31,6 +32,7 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
   const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
+  const [resendSeconds, setResendSeconds] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -43,9 +45,20 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
   function resetCodeFlow() {
     setOtpSent(false);
     setOtp('');
+    setResendSeconds(0);
     setNotice('');
     setError('');
   }
+
+  // Shared Customer / Artist OTP resend countdown. The matching server-side
+  // limit is 30 seconds, so the button unlocks exactly when a resend is allowed.
+  useEffect(() => {
+    if (!otpSent || resendSeconds <= 0) return undefined;
+    const timer = window.setInterval(() => {
+      setResendSeconds((seconds) => Math.max(0, seconds - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [otpSent, resendSeconds]);
 
   async function sendOtp(purpose) {
     setBusy(true);
@@ -61,6 +74,9 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
         if (!/^\d{10}$/.test(phone)) throw new Error('Enter a valid 10-digit Indian mobile number.');
         if (password.length < 8) throw new Error('Create a password with at least 8 characters.');
       }
+      if (resetPasswordFlow && password.length < 8) {
+        throw new Error('Your new password must contain at least 8 characters.');
+      }
 
       const response = await fetch('/api/auth/send-otp', {
         method: 'POST',
@@ -75,11 +91,18 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
         }),
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || 'Could not send your verification code.');
+      if (!response.ok) {
+        const retryAfter = Number(response.headers.get('Retry-After') || 0);
+        if (response.status === 429 && retryAfter > 0) {
+          setResendSeconds(retryAfter);
+        }
+        throw new Error(result.error || 'Could not send your verification code.');
+      }
 
       setEmail(normalizedEmail);
       setOtpSent(true);
       setOtp('');
+      setResendSeconds(Math.max(0, Number(result.resendAfterSeconds) || 30));
       setNotice(`A 6-digit verification code has been sent to ${normalizedEmail}. Enter it below without leaving this page.`);
       onSent?.({ mode: purpose, email: normalizedEmail, creatorRole: isArtist ? creatorRole : undefined });
     } catch (err) {
@@ -102,7 +125,7 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
           accountType,
           purpose,
           otp,
-          password: purpose === 'signup' ? password : undefined,
+          password: purpose === 'signup' || resetPasswordFlow ? password : undefined,
         }),
       });
       const result = await response.json().catch(() => ({}));
@@ -118,7 +141,7 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
       });
       if (sessionError) throw sessionError;
 
-      setNotice(purpose === 'signup' ? 'Email verified. Opening your secure onboarding form…' : 'You are signed in. Opening your account…');
+      setNotice(result.message || (purpose === 'signup' ? 'Email verified. Opening your secure onboarding form…' : 'You are signed in. Opening your account…'));
       router.replace(purpose === 'signup' ? onboardingPath : dashboardPath);
       router.refresh();
     } catch (err) {
@@ -142,11 +165,32 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
         password,
       });
       if (authError) throw authError;
-      const actualType = data.user?.user_metadata?.account_type;
-      if (actualType && actualType !== accountType) {
+
+      // One verified Auth identity may have both Artiste portal profiles.
+      // This server-side check selects only the portal whose profile exists and
+      // updates the Auth metadata used by the protected API routes.
+      const portalResponse = await fetch('/api/auth/select-portal', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${data.session?.access_token || ''}`,
+        },
+        body: JSON.stringify({ accountType }),
+        cache: 'no-store',
+      });
+      const portalResult = await portalResponse.json().catch(() => ({}));
+      if (!portalResponse.ok) {
         await supabase.auth.signOut();
-        throw new Error(`This account belongs to the ${actualType === 'artist' ? 'Artist' : 'Customer'} portal.`);
+        throw new Error(portalResult.error || `This email is not registered in the ${accountLabel} portal.`);
       }
+
+      // Refresh JWT/user metadata after the server selects the active portal.
+      const { error: refreshError } = await supabase.auth.refreshSession();
+      if (refreshError) {
+        await supabase.auth.signOut();
+        throw refreshError;
+      }
+
       router.replace(dashboardPath);
       router.refresh();
     } catch (err) {
@@ -161,6 +205,12 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
     if (mode === 'signup') {
       return otpSent ? verifyOtp('signup') : sendOtp('signup');
     }
+    if (resetPasswordFlow) {
+      // Reuse the existing login-purpose OTP row to remain compatible with
+      // the deployed email_otps CHECK constraint. The verified password is
+      // updated server-side after this code is consumed.
+      return otpSent ? verifyOtp('login') : sendOtp('login');
+    }
     if (loginMethod === 'otp') {
       return otpSent ? verifyOtp('login') : sendOtp('login');
     }
@@ -172,14 +222,14 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
       <div className="grid grid-cols-2 border-b border-[#e9e0d5] p-2">
         <button
           type="button"
-          onClick={() => { setMode('login'); setLoginMethod('password'); setPassword(''); resetCodeFlow(); }}
+          onClick={() => { setMode('login'); setLoginMethod('password'); setResetPasswordFlow(false); setPassword(''); resetCodeFlow(); }}
           className={`flex items-center justify-center gap-2 rounded-2xl px-3 py-3 text-[10px] font-bold uppercase tracking-[.12em] transition ${mode === 'login' ? 'bg-ink text-white' : 'text-muted hover:bg-[#f5efe7]'}`}
         >
           <LockKeyhole size={15} strokeWidth={1.8} /> Existing User — Log In
         </button>
         <button
           type="button"
-          onClick={() => { setMode('signup'); setLoginMethod('password'); setPassword(''); resetCodeFlow(); }}
+          onClick={() => { setMode('signup'); setLoginMethod('password'); setResetPasswordFlow(false); setPassword(''); resetCodeFlow(); }}
           className={`flex items-center justify-center gap-2 rounded-2xl px-3 py-3 text-[10px] font-bold uppercase tracking-[.12em] transition ${mode === 'signup' ? 'bg-ink text-white' : 'text-muted hover:bg-[#f5efe7]'}`}
         >
           <UserRoundPlus size={15} strokeWidth={1.8} /> New User — Sign Up
@@ -192,17 +242,19 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
           {mode === 'login' ? `Welcome back, ${accountLabel.toLowerCase()}.` : `Join Artiste as ${isArtist ? 'an Artist' : 'a Customer'}.`}
         </h2>
         <p className="mt-2 text-xs leading-6 text-muted">
-          {mode === 'login'
-            ? 'Choose password sign-in or receive a 6-digit email code. You will stay on this browser tab.'
-            : 'Enter your details and create a password. We will email a 6-digit code that you verify right here.'}
+          {resetPasswordFlow
+            ? 'Choose a new password, receive a 6-digit email code and verify it here to reset your password. This email has one shared password for both Customer and Artist portals.'
+            : mode === 'login'
+              ? 'Choose password sign-in or receive a 6-digit email code. You will stay on this browser tab.'
+              : 'Enter your details and create a password. We will email a 6-digit code that you verify right here.'}
         </p>
 
-        {mode === 'login' && (
+        {mode === 'login' && !resetPasswordFlow && (
           <div className="mt-5 flex rounded-xl border border-[#e6ddd1] bg-[#f8f3ec] p-1">
-            <button type="button" onClick={() => { setLoginMethod('password'); resetCodeFlow(); }} className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold ${loginMethod === 'password' ? 'bg-white text-ink shadow-sm' : 'text-muted'}`}>
+            <button type="button" onClick={() => { setResetPasswordFlow(false); setLoginMethod('password'); resetCodeFlow(); }} className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold ${loginMethod === 'password' ? 'bg-white text-ink shadow-sm' : 'text-muted'}`}>
               Email + Password
             </button>
-            <button type="button" onClick={() => { setLoginMethod('otp'); setPassword(''); resetCodeFlow(); }} className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold ${loginMethod === 'otp' ? 'bg-white text-ink shadow-sm' : 'text-muted'}`}>
+            <button type="button" onClick={() => { setResetPasswordFlow(false); setLoginMethod('otp'); setPassword(''); resetCodeFlow(); }} className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold ${loginMethod === 'otp' ? 'bg-white text-ink shadow-sm' : 'text-muted'}`}>
               Email + 6-Digit OTP
             </button>
           </div>
@@ -242,11 +294,37 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
             <input className="field mt-1" type="email" autoComplete="email" required disabled={otpSent || busy} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
           </label>
 
-          {(mode === 'signup' || (mode === 'login' && loginMethod === 'password')) && (
+          {(mode === 'signup' || (mode === 'login' && loginMethod === 'password') || resetPasswordFlow) && (
             <label className="label">
-              {mode === 'signup' ? 'Create Password' : 'Password'}
-              <input className="field mt-1" type="password" autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} minLength={mode === 'signup' ? 8 : undefined} required disabled={otpSent || busy} value={password} onChange={(e) => setPassword(e.target.value)} placeholder={mode === 'signup' ? 'At least 8 characters' : 'Your password'} />
+              {mode === 'signup' ? 'Create Password' : resetPasswordFlow ? 'New Password' : 'Password'}
+              <input className="field mt-1" type="password" autoComplete={mode === 'signup' || resetPasswordFlow ? 'new-password' : 'current-password'} minLength={mode === 'signup' || resetPasswordFlow ? 8 : undefined} required disabled={otpSent || busy} value={password} onChange={(e) => setPassword(e.target.value)} placeholder={mode === 'signup' || resetPasswordFlow ? 'At least 8 characters' : 'Your password'} />
             </label>
+          )}
+
+          {mode === 'signup' && (
+            <p className="-mt-2 text-[10px] leading-5 text-muted">
+              One email address uses one Artiste sign-in password. If you add the other portal with this same email, the password you set here will be shared by both Customer and Artist access.
+            </p>
+          )}
+
+          {mode === 'login' && loginMethod === 'password' && !resetPasswordFlow && !otpSent && (
+            <div className="-mt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => { setResetPasswordFlow(true); setLoginMethod('otp'); setPassword(''); resetCodeFlow(); }}
+                className="text-[11px] font-semibold text-clay hover:underline"
+              >
+                Forgot password?
+              </button>
+            </div>
+          )}
+
+          {resetPasswordFlow && !otpSent && (
+            <div className="-mt-2 flex justify-end">
+              <button type="button" onClick={() => { setResetPasswordFlow(false); setLoginMethod('password'); setPassword(''); resetCodeFlow(); }} className="text-[11px] font-semibold text-clay hover:underline">
+                Back to sign in
+              </button>
+            </div>
           )}
 
           {otpSent && (
@@ -274,12 +352,28 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
                   <RefreshCw size={12} /> Change details
                 </button>
               </div>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#e6ddd1] pt-3">
+                <span className="text-[11px] text-muted" aria-live="polite">
+                  {resendSeconds > 0 ? `Resend OTP in ${resendSeconds}s` : 'Didn’t receive the code?'}
+                </span>
+                <button
+                  type="button"
+                  disabled={busy || resendSeconds > 0}
+                  onClick={() => sendOtp(mode === 'signup' ? 'signup' : 'login')}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[#D9C6A6] px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-clay transition hover:bg-[#FAF6F0] disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  <RefreshCw size={12} className={busy ? 'animate-spin' : ''} />
+                  {resendSeconds > 0 ? `Resend OTP in ${resendSeconds}s` : 'Resend OTP'}
+                </button>
+              </div>
             </div>
           )}
 
           <button className="btn-primary flex w-full items-center justify-center gap-2" disabled={busy}>
-            {busy ? 'Please wait…' : mode === 'signup'
-              ? (otpSent ? 'Verify & Continue' : 'Send 6-Digit OTP')
+            {busy ? 'Please wait…' : resetPasswordFlow
+              ? (otpSent ? 'Verify & Reset Password' : 'Send 6-Digit OTP')
+              : mode === 'signup'
+                ? (otpSent ? 'Verify & Continue' : 'Send 6-Digit OTP')
               : loginMethod === 'password'
                 ? 'Log In'
                 : (otpSent ? 'Verify & Log In' : 'Send 6-Digit OTP')}
