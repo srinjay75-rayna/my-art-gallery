@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, ArrowUpRight, FileText, LogOut, MapPin, PackageCheck, ShieldCheck, UserRound } from 'lucide-react';
 import { getBrowserSupabase } from '@/lib/supabase-browser';
@@ -24,6 +24,7 @@ export default function AccountPage() {
   const [editingAddress, setEditingAddress] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const verifiedUserRef = useRef(null);
 
   useEffect(() => {
     const requestedTab = new URLSearchParams(window.location.search).get('tab');
@@ -39,19 +40,28 @@ export default function AccountPage() {
     const acceptSession = async (value) => {
       if (!active) return;
       if (!value) {
+        verifiedUserRef.current = null;
         setSession(null);
         return;
       }
       if (!hasEmailOtpSession(value)) {
+        verifiedUserRef.current = null;
         setSession(null);
-        setTimeout(() => client.auth.signOut(), 0);
+        setTimeout(() => client.auth.signOut({ scope: 'local' }), 0);
+        return;
+      }
+
+      // Token refreshes for an already-verified user need no server round trip,
+      // but the fresh access token must still reach the page state.
+      if (verifiedUserRef.current && verifiedUserRef.current === value.user?.id) {
+        setSession(value);
         return;
       }
 
       try {
-        // The server verifies actual Customer profile membership and selects
-        // the Customer portal. This avoids trusting stale single-role metadata
-        // when the same verified email also owns an Artist profile.
+        // The server verifies real Customer profile membership instead of
+        // trusting Auth metadata that may be stale when the same verified email
+        // also owns the other portal's profile.
         const response = await fetch('/api/auth/select-portal', {
           method: 'POST',
           headers: {
@@ -64,14 +74,19 @@ export default function AccountPage() {
         const result = await response.json().catch(() => ({}));
         if (!active) return;
         if (!response.ok) {
+          verifiedUserRef.current = null;
           setSession(null);
           setError(result.error || 'This email does not have a Customer profile.');
-          setTimeout(() => client.auth.signOut(), 0);
+          // Local scope: a wrong-portal attempt must not sign out other devices.
+          setTimeout(() => client.auth.signOut({ scope: 'local' }), 0);
           return;
         }
+        verifiedUserRef.current = value.user?.id || null;
+        setError('');
         setSession(value);
       } catch (err) {
         if (!active) return;
+        verifiedUserRef.current = null;
         setSession(null);
         setError(err.message || 'Could not verify your Customer portal. Please sign in again.');
       }
@@ -110,7 +125,7 @@ export default function AccountPage() {
     setError('');
     try {
       const response = await fetch('/api/account', { headers: { Authorization: `Bearer ${current.access_token}` }, cache: 'no-store' });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Could not load your Customer account.');
       const meta = current.user?.user_metadata || {};
       const nextProfile = { ...blank, ...(data.profile || {}) };
@@ -146,7 +161,7 @@ export default function AccountPage() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify(profile),
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Could not save your details.');
       setProfile({ ...blank, ...data.profile });
       setSavedProfile({ ...blank, ...data.profile });
@@ -157,7 +172,8 @@ export default function AccountPage() {
   }
 
   async function logout() {
-    await getBrowserSupabase().auth.signOut();
+    await getBrowserSupabase().auth.signOut({ scope: 'local' });
+    verifiedUserRef.current = null;
     setSession(null); setOrders([]); setProfile(blank); setSavedProfile(blank); setNotice('You have been signed out.');
   }
 
@@ -165,7 +181,7 @@ export default function AccountPage() {
 
   return <main className="paper-grain min-h-screen px-5 py-8 md:px-10"><div className="mx-auto max-w-6xl">
     <div className="mb-8 flex justify-end"><a href="/#gallery" className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-clay"><ArrowLeft size={14} /> Back to Collection</a></div>
-    <p className="eyebrow flex items-center gap-2"><UserRound size={14} /> For Cuṣtomers</p><h1 className="mt-2 font-display text-5xl">A home for your <em className="font-normal text-clay">art stories.</em></h1>
+    <p className="eyebrow flex items-center gap-2"><UserRound size={14} /> For Customers</p><h1 className="mt-2 font-display text-5xl">A home for your <em className="font-normal text-clay">art stories.</em></h1>
     {error && <p role="alert" className="mt-6 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}{notice && <p role="status" className="mt-6 rounded-xl bg-green-50 p-3 text-sm text-green-800">{notice}</p>}
     {!session ? <div className="mt-8 max-w-2xl"><EmailOtpAuth accountType="customer" /></div> : <>
       <div className="mt-7 flex flex-wrap items-center justify-between gap-3"><p className="flex items-center gap-2 text-sm text-muted"><ShieldCheck size={15} className="text-green-700" /> Verified Customer <b className="text-ink">{session.user.email}</b></p><button className="action-btn flex items-center gap-2" onClick={logout}><LogOut size={14} /> Sign out</button></div>

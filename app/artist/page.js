@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
@@ -47,6 +47,7 @@ export default function ArtistPage() {
   const [editingPayout, setEditingPayout] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const verifiedUserRef = useRef(null);
 
   useEffect(() => {
     let active = true;
@@ -56,18 +57,28 @@ export default function ArtistPage() {
       const acceptSession = async (value) => {
         if (!active) return;
         if (!value) {
+          verifiedUserRef.current = null;
           setSession(null);
           return;
         }
         if (!hasEmailOtpSession(value)) {
+          verifiedUserRef.current = null;
           setSession(null);
-          setTimeout(() => client.auth.signOut(), 0);
+          setTimeout(() => client.auth.signOut({ scope: 'local' }), 0);
+          return;
+        }
+
+        // Token refreshes for an already-verified user need no server round trip,
+        // but the fresh access token must still reach the page state.
+        if (verifiedUserRef.current && verifiedUserRef.current === value.user?.id) {
+          setSession(value);
           return;
         }
 
         try {
-          // Verify Artist profile membership server-side instead of relying on
-          // possibly stale Auth metadata from a Customer session.
+          // The server verifies real Artist profile membership instead of
+          // trusting Auth metadata that may be stale when the same verified email
+          // also owns the other portal's profile.
           const response = await fetch('/api/auth/select-portal', {
             method: 'POST',
             headers: {
@@ -80,14 +91,19 @@ export default function ArtistPage() {
           const result = await response.json().catch(() => ({}));
           if (!active) return;
           if (!response.ok) {
+            verifiedUserRef.current = null;
             setSession(null);
             setError(result.error || 'This email does not have an Artist profile.');
-            setTimeout(() => client.auth.signOut(), 0);
+            // Local scope: a wrong-portal attempt must not sign out other devices.
+            setTimeout(() => client.auth.signOut({ scope: 'local' }), 0);
             return;
           }
+          verifiedUserRef.current = value.user?.id || null;
+          setError('');
           setSession(value);
         } catch (err) {
           if (!active) return;
+          verifiedUserRef.current = null;
           setSession(null);
           setError(err.message || 'Could not verify your Artist portal. Please sign in again.');
         }
@@ -104,6 +120,7 @@ export default function ArtistPage() {
       });
 
       const { data: { subscription: authSubscription } } = client.auth.onAuthStateChange((event, value) => {
+        if (!active) return;
         void acceptSession(value || null);
         if (event !== 'TOKEN_REFRESHED' && event !== 'USER_UPDATED') setAuthLoading(false);
       });
@@ -309,7 +326,8 @@ export default function ArtistPage() {
   }
 
   async function logout() {
-    await getBrowserSupabase().auth.signOut();
+    await getBrowserSupabase().auth.signOut({ scope: 'local' });
+    verifiedUserRef.current = null;
     setArtist(null);
     setNotice('You have been signed out.');
   }

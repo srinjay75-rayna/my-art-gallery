@@ -146,9 +146,15 @@ export async function POST(request) {
       try { await requireServiceRole().from('email_otps').update({ used_at: new Date().toISOString() }).eq('id', otpRowId); } catch {}
     }
     console.error('Artiste send OTP error:', error?.message || error);
+    const status = Number(error?.status);
+    const clientSafe = Number.isInteger(status) && status >= 400 && status < 500;
+    // Provider / SMTP / database messages stay in the server log; the browser
+    // only receives deliberate, user-facing text.
     const message = error?.message?.includes('email_otps') || error?.code === '42P01'
       ? 'The OTP database table is not ready. Run the updated database/schema.sql in Supabase.'
-      : error.message || 'Could not send your verification code.';
-    return NextResponse.json({ error: message }, { status: Number(error?.status) || 500 });
+      : clientSafe
+        ? error.message
+        : 'We could not send your verification code right now. Please try again in a moment.';
+    return NextResponse.json({ error: message }, { status: clientSafe ? status : 500 });
   }
 }

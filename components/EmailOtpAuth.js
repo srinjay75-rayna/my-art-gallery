@@ -15,6 +15,9 @@ import {
 } from 'lucide-react';
 import { getBrowserSupabase } from '@/lib/supabase-browser';
 
+const RESEND_SECONDS = 30;
+const MAX_SERVER_COOLDOWN_SECONDS = 120;
+
 /**
  * In-page authentication for Customers and Artists.
  * Email codes are issued by Artiste's own SMTP-backed OTP endpoints. No
@@ -32,7 +35,10 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
   const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
-  const [resendSeconds, setResendSeconds] = useState(0);
+  // The countdown is a wall-clock deadline (not a decrementing counter), so it
+  // stays accurate when the browser throttles timers in a background tab.
+  const [cooldown, setCooldown] = useState({ email: '', until: 0 });
+  const [tick, setTick] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -45,20 +51,33 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
   function resetCodeFlow() {
     setOtpSent(false);
     setOtp('');
-    setResendSeconds(0);
     setNotice('');
     setError('');
   }
 
-  // Shared Customer / Artist OTP resend countdown. The matching server-side
-  // limit is 30 seconds, so the button unlocks exactly when a resend is allowed.
+  // Live resend countdown shared by the Customer and Artist portals. It matches
+  // the server-side 30-second per-email limit, so the Resend button unlocks
+  // exactly when a new code may be requested.
   useEffect(() => {
-    if (!otpSent || resendSeconds <= 0) return undefined;
+    if (cooldown.until <= Date.now()) return undefined;
+    setTick(Date.now());
     const timer = window.setInterval(() => {
-      setResendSeconds((seconds) => Math.max(0, seconds - 1));
-    }, 1000);
+      const now = Date.now();
+      setTick(now);
+      if (now >= cooldown.until) window.clearInterval(timer);
+    }, 250);
     return () => window.clearInterval(timer);
-  }, [otpSent, resendSeconds]);
+  }, [cooldown.until]);
+
+  function startCooldown(forEmail, seconds) {
+    const now = Date.now();
+    setTick(now);
+    setCooldown({ email: forEmail, until: now + Math.max(1, seconds) * 1000 });
+  }
+
+  const secondsLeft = Math.max(0, Math.ceil((cooldown.until - tick) / 1000));
+  const cooling = secondsLeft > 0 && email.trim().toLowerCase() === cooldown.email;
+  const needsCodeStep = mode === 'signup' || resetPasswordFlow || loginMethod === 'otp';
 
   async function sendOtp(purpose) {
     setBusy(true);
@@ -92,9 +111,16 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const retryAfter = Number(response.headers.get('Retry-After') || 0);
-        if (response.status === 429 && retryAfter > 0) {
-          setResendSeconds(retryAfter);
+        if (response.status === 429) {
+          const headerSeconds = Number(response.headers.get('Retry-After') || 0);
+          const retryAfter = headerSeconds > 0
+            ? headerSeconds
+            : /30 seconds/i.test(String(result.error || '')) ? RESEND_SECONDS : 0;
+          // Only short, per-email waits are shown as a resend countdown;
+          // hourly limits are reported through the error message instead.
+          if (retryAfter > 0 && retryAfter <= MAX_SERVER_COOLDOWN_SECONDS) {
+            startCooldown(normalizedEmail, retryAfter);
+          }
         }
         throw new Error(result.error || 'Could not send your verification code.');
       }
@@ -102,7 +128,7 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
       setEmail(normalizedEmail);
       setOtpSent(true);
       setOtp('');
-      setResendSeconds(Math.max(0, Number(result.resendAfterSeconds) || 30));
+      startCooldown(normalizedEmail, Number(result.resendAfterSeconds) || RESEND_SECONDS);
       setNotice(`A 6-digit verification code has been sent to ${normalizedEmail}. Enter it below without leaving this page.`);
       onSent?.({ mode: purpose, email: normalizedEmail, creatorRole: isArtist ? creatorRole : undefined });
     } catch (err) {
@@ -164,7 +190,12 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
         email: normalizedEmail,
         password,
       });
-      if (authError) throw authError;
+      if (authError) {
+        if (/invalid login credentials/i.test(authError.message || '')) {
+          throw new Error('Incorrect email or password. If you are unsure of your password, choose “Forgot password?” to set a new one with an email code.');
+        }
+        throw authError;
+      }
 
       // One verified Auth identity may have both Artiste portal profiles.
       // This server-side check selects only the portal whose profile exists and
@@ -180,14 +211,14 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
       });
       const portalResult = await portalResponse.json().catch(() => ({}));
       if (!portalResponse.ok) {
-        await supabase.auth.signOut();
+        await supabase.auth.signOut({ scope: 'local' });
         throw new Error(portalResult.error || `This email is not registered in the ${accountLabel} portal.`);
       }
 
       // Refresh JWT/user metadata after the server selects the active portal.
       const { error: refreshError } = await supabase.auth.refreshSession();
       if (refreshError) {
-        await supabase.auth.signOut();
+        await supabase.auth.signOut({ scope: 'local' });
         throw refreshError;
       }
 
@@ -353,30 +384,35 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
                 </button>
               </div>
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#e6ddd1] pt-3">
-                <span className="text-[11px] text-muted" aria-live="polite">
-                  {resendSeconds > 0 ? `Resend OTP in ${resendSeconds}s` : 'Didn’t receive the code?'}
-                </span>
+                <span className="text-[11px] text-muted">Didn’t receive the code?</span>
                 <button
                   type="button"
-                  disabled={busy || resendSeconds > 0}
+                  disabled={busy || cooling}
                   onClick={() => sendOtp(mode === 'signup' ? 'signup' : 'login')}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-[#D9C6A6] px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-clay transition hover:bg-[#FAF6F0] disabled:cursor-not-allowed disabled:opacity-45"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[#D9C6A6] px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-clay transition hover:bg-[#FAF6F0] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <RefreshCw size={12} className={busy ? 'animate-spin' : ''} />
-                  {resendSeconds > 0 ? `Resend OTP in ${resendSeconds}s` : 'Resend OTP'}
+                  {cooling ? `Resend OTP in ${secondsLeft}s` : 'Resend OTP'}
                 </button>
               </div>
             </div>
           )}
 
-          <button className="btn-primary flex w-full items-center justify-center gap-2" disabled={busy}>
-            {busy ? 'Please wait…' : resetPasswordFlow
-              ? (otpSent ? 'Verify & Reset Password' : 'Send 6-Digit OTP')
-              : mode === 'signup'
-                ? (otpSent ? 'Verify & Continue' : 'Send 6-Digit OTP')
-              : loginMethod === 'password'
-                ? 'Log In'
-                : (otpSent ? 'Verify & Log In' : 'Send 6-Digit OTP')}
+          <button
+            className="btn-primary flex w-full items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={busy || (needsCodeStep && !otpSent && cooling)}
+          >
+            {busy
+              ? 'Please wait…'
+              : needsCodeStep && !otpSent
+                ? (cooling ? `Send 6-Digit OTP · wait ${secondsLeft}s` : 'Send 6-Digit OTP')
+                : resetPasswordFlow
+                  ? 'Verify & Reset Password'
+                  : mode === 'signup'
+                    ? 'Verify & Continue'
+                    : loginMethod === 'password'
+                      ? 'Log In'
+                      : 'Verify & Log In'}
             <ArrowRight size={15} />
           </button>
         </form>
