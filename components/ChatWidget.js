@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowUpRight,
   Camera,
@@ -11,54 +11,63 @@ import {
   Send,
   Sparkles,
   X,
-} from "lucide-react";
-import siteConfig from "@/lib/siteConfig";
+} from 'lucide-react';
+import siteConfig from '@/lib/siteConfig';
+
+const MAX_HISTORY = 16;
+
+const INITIAL_GREETING =
+  'Hi! What kind of help do you need today?';
 
 const STARTERS = [
   {
-    label: "Find an artwork",
+    label: 'Find an artwork',
     icon: Palette,
-    text: "Help me find an original painting for my home.",
+    text: 'Help me find an original painting for my home.',
   },
   {
-    label: "Explore photography",
+    label: 'Explore photography',
     icon: Camera,
-    text: "Show me the Fine-Art Photography collection.",
+    text: 'Show me the Fine-Art Photography collection.',
   },
   {
-    label: "Track an order",
+    label: 'Track an order',
     icon: PackageCheck,
-    text: "I would like to track my order.",
+    text: 'I would like to track my order.',
   },
 ];
 
 function clientFallback(message) {
-  const q = String(message || "").toLowerCase();
+  const q = String(message || '').toLowerCase();
 
   if (/track|order|bill|bos-ar|awb|dispatch/.test(q)) {
-    return "Please share your Artiste Order ID or Bill Number (BOS-AR-…) and I’ll help you find the latest order and dispatch details. You can also visit My Orders in your account to access your official Bill of Supply.";
+    return 'Please share your Artiste Order ID or Bill Number (BOS-AR-…) and I’ll help you find the latest order and dispatch details. You can also visit My Orders in your account for your official Bill of Supply.';
   }
 
   if (/photo|photograph|print|edition/.test(q)) {
-    return "Our Photography Wing features curated Fine-Art Photographs, with edition and print details shown on individual listings. Explore the collection at /photography.";
+    return 'Our Photography Wing features curated Fine-Art Photographs, with edition and print details on individual listings. Explore the collection at /photography.';
   }
 
   if (/paint|artwork|wall|decor|living room|bedroom/.test(q)) {
-    return "I’d be delighted to help you find something special for your space. Browse our original paintings and tell me about the room, colours or mood you have in mind.";
+    return 'I’d be delighted to help you find something special for your space. Browse our original paintings and tell me the room, colours or mood you have in mind.';
   }
 
   if (/creator|artist|painter|sell|onboard|upload/.test(q)) {
-    return "Painters and Photographers can use the same Artist Portal to complete their profiles and list original works. Visit /artist to get started.";
+    return 'Painters and Photographers can use the same Artist Portal to complete their profiles and list original works. Visit /artist to get started.';
   }
 
-  return "I'm here to help with Artiste paintings, photography, creator listings, orders, delivery and Bills of Supply. What would you like to explore?";
+  if (/delivery|shiprocket|shipping|courier/.test(q)) {
+    return 'Live Shiprocket rates are calculated at checkout from the creator’s pickup PIN to your delivery PIN. Once an order is placed, courier updates appear in My Orders.';
+  }
+
+  return 'I’m here to help with Artiste paintings, Fine-Art Photography, creators, orders, delivery and Bills of Supply. What would you like to explore?';
 }
 
 function AvatarFallback({ compact = false }) {
   return (
     <div
       className={`flex h-full w-full flex-col items-center justify-center text-[#263832] ${
-        compact ? "text-2xl" : "text-5xl"
+        compact ? 'text-2xl' : 'text-5xl'
       }`}
       aria-label="Rayna avatar"
     >
@@ -66,6 +75,7 @@ function AvatarFallback({ compact = false }) {
         size={compact ? 16 : 26}
         className="text-[#B85D3B]"
       />
+
       <span className="font-serif font-bold">R</span>
     </div>
   );
@@ -76,32 +86,40 @@ export default function ChatWidget() {
   const [greetingDismissed, setGreetingDismissed] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
 
-  const [input, setInput] = useState("");
-  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+
+  // Store complete conversational history using Gemini-compatible roles.
+  const [messages, setMessages] = useState([
+    {
+      role: 'assistant',
+      content: INITIAL_GREETING,
+    },
+  ]);
+
   const [sending, setSending] = useState(false);
-  const [mode, setMode] = useState("");
+  const [mode, setMode] = useState('');
 
   const endRef = useRef(null);
   const inputRef = useRef(null);
 
-  const whatsappUrl = `https://wa.me/${
-    siteConfig.whatsappNumber
-  }?text=${encodeURIComponent(
-    "Hello Artiste Support, I need help with: "
-  )}`;
+  const whatsappUrl =
+    `https://wa.me/${siteConfig.whatsappNumber}?text=${
+      encodeURIComponent(
+        'Hello Artiste Support, I need help with: '
+      )
+    }`;
 
-  const emailUrl = `mailto:${
-    siteConfig.supportEmail
-  }?subject=${encodeURIComponent(
-    "Artiste — Gallery Support"
-  )}`;
+  const emailUrl =
+    `mailto:${siteConfig.supportEmail}?subject=${
+      encodeURIComponent('Artiste — Gallery Support')
+    }`;
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) return undefined;
 
     endRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "nearest",
+      behavior: 'smooth',
+      block: 'nearest',
     });
 
     const timer = window.setTimeout(() => {
@@ -111,69 +129,85 @@ export default function ChatWidget() {
     return () => window.clearTimeout(timer);
   }, [messages, open, sending]);
 
+  /* ==========================================
+     MULTI-TURN CONVERSATIONAL REQUEST
+  ========================================== */
+
   async function ask(text) {
-    const cleaned = String(text || "").trim();
+    const cleaned = String(text || '').trim();
 
     if (!cleaned || sending) return;
 
+    // Preserve earlier conversation and append the latest user message.
+    // The complete latest 16 messages are sent on every request.
+
     const nextMessages = [
       ...messages,
-      { from: "user", text: cleaned },
-    ].slice(-12);
+      {
+        role: 'user',
+        content: cleaned,
+      },
+    ].slice(-MAX_HISTORY);
 
     setMessages(nextMessages);
-    setInput("");
+    setInput('');
     setSending(true);
 
     try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+
         headers: {
-          "Content-Type": "application/json",
+          'Content-Type': 'application/json',
         },
+
         body: JSON.stringify({
-          messages: nextMessages.map(({ from, text: messageText }) => ({
-            from,
-            text: messageText,
-          })),
+          messages: nextMessages,
         }),
-        cache: "no-store",
+
+        cache: 'no-store',
       });
 
       const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
         throw new Error(
-          result.error || "Rayna is temporarily unavailable."
+          result.error || 'Rayna is temporarily unavailable.'
         );
       }
 
-      setMode(result.mode || "fallback");
-
-      setMessages((current) =>
-        [
-          ...current,
-          {
-            from: "bot",
-            text: result.reply || clientFallback(cleaned),
-          },
-        ].slice(-14)
+      const reply = String(
+        result.reply || clientFallback(cleaned)
       );
+
+      setMode(result.mode || 'fallback');
+
+      // Append Rayna's answer as an assistant turn.
+      setMessages((current) => [
+        ...current,
+        {
+          role: 'assistant',
+          content: reply,
+        },
+      ].slice(-MAX_HISTORY));
+
     } catch {
-      setMode("fallback");
+      setMode('fallback');
 
-      setMessages((current) =>
-        [
-          ...current,
-          {
-            from: "bot",
-            text: clientFallback(cleaned),
-          },
-        ].slice(-14)
-      );
+      setMessages((current) => [
+        ...current,
+        {
+          role: 'assistant',
+          content: clientFallback(cleaned),
+        },
+      ].slice(-MAX_HISTORY));
+
     } finally {
       setSending(false);
-      window.setTimeout(() => inputRef.current?.focus(), 80);
+
+      window.setTimeout(() => {
+        inputRef.current?.focus();
+      }, 80);
     }
   }
 
@@ -188,13 +222,9 @@ export default function ChatWidget() {
   }
 
   return (
-    <div className="concierge-widget fixed bottom-4 right-3 z-[90] flex max-w-[calc(100vw-24px)] flex-col items-end gap-2 sm:bottom-5 sm:right-5">
+    <div className="site-chrome concierge-widget fixed bottom-4 right-3 z-[90] flex max-w-[calc(100vw-24px)] flex-col items-end gap-2 sm:bottom-5 sm:right-5">
 
       <style jsx global>{`
-        /*
-         * Rayna's gentle shoulder-anchored wave.
-         * Rotation only: no bouncing, jumping or vertical movement.
-         */
         @keyframes rayna-shoulder-wave {
           0% {
             transform: rotate(0deg);
@@ -224,16 +254,10 @@ export default function ChatWidget() {
           will-change: transform;
         }
 
-        /*
-         * A very subtle wave when the visitor points at Rayna.
-         */
         .rayna-character:hover .rayna-portrait {
           animation: rayna-shoulder-wave 1.9s ease-in-out infinite;
         }
 
-        /*
-         * Greeting bubble entrance.
-         */
         @keyframes rayna-greeting-appear {
           from {
             opacity: 0;
@@ -260,9 +284,9 @@ export default function ChatWidget() {
         }
       `}</style>
 
-      {/* ==============================
+      {/* ======================================
           RAYNA CHAT WINDOW
-      ============================== */}
+      ====================================== */}
 
       {open && (
         <section
@@ -277,8 +301,8 @@ export default function ChatWidget() {
 
             <div className="flex min-w-0 items-center gap-3">
 
-              {/* Small unoptimized portrait */}
-              <div className="h-14 w-12 shrink-0">
+              <span className="block h-14 w-12 shrink-0 overflow-hidden rounded-xl bg-[#FAF6F0]">
+
                 {!avatarFailed ? (
                   <img
                     src="/rayna-avatar.png"
@@ -294,17 +318,20 @@ export default function ChatWidget() {
                 ) : (
                   <AvatarFallback compact />
                 )}
-              </div>
 
-              <div className="min-w-0">
-                <b className="block font-serif text-xl leading-none text-[#263832]">
+              </span>
+
+              <span className="min-w-0">
+
+                <b className="block truncate font-serif text-xl leading-none text-[#263832]">
                   Rayna
                 </b>
 
-                <small className="mt-1.5 block text-[9px] uppercase tracking-[0.16em] text-[#927A61]">
+                <small className="mt-1.5 block text-[9px] uppercase tracking-[.16em] text-[#927A61]">
                   AI Assistant
                 </small>
-              </div>
+
+              </span>
 
             </div>
 
@@ -319,17 +346,35 @@ export default function ChatWidget() {
 
           </header>
 
-          {/* Conversation */}
+          {/* Conversation history */}
           <div
             className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 sm:px-5"
             aria-live="polite"
           >
 
-            <div className="max-w-[92%] rounded-2xl rounded-tl-sm border border-[#E3D7C8] bg-white/85 px-3.5 py-3 text-[12px] leading-6 text-[#35453D] shadow-sm">
-              Hi! What kind of help do you need today?
-            </div>
+            {messages.map((message, index) => (
+              <div
+                key={`${message.role}-${index}`}
+                className={`flex ${
+                  message.role === 'user'
+                    ? 'justify-end'
+                    : 'justify-start'
+                }`}
+              >
+                <div
+                  className={`max-w-[90%] rounded-2xl px-3.5 py-2.5 text-[12px] leading-6 ${
+                    message.role === 'user'
+                      ? 'rounded-tr-sm bg-[#263832] text-[#FAF6F0]'
+                      : 'rounded-tl-sm border border-[#E3D7C8] bg-white/85 text-[#35453D] shadow-sm'
+                  }`}
+                >
+                  {message.content}
+                </div>
+              </div>
+            ))}
 
-            {messages.length === 0 && (
+            {/* Starter suggestions */}
+            {messages.length === 1 && (
               <div className="flex flex-wrap gap-2 pt-1">
 
                 {STARTERS.map(({ label, icon: Icon, text }) => (
@@ -347,34 +392,16 @@ export default function ChatWidget() {
               </div>
             )}
 
-            {messages.map((message, index) => (
-              <div
-                key={`${message.from}-${index}`}
-                className={`flex ${
-                  message.from === "user"
-                    ? "justify-end"
-                    : "justify-start"
-                }`}
-              >
-                <div
-                  className={`max-w-[90%] rounded-2xl px-3.5 py-2.5 text-[12px] leading-6 ${
-                    message.from === "user"
-                      ? "rounded-tr-sm bg-[#263832] text-[#FAF6F0]"
-                      : "rounded-tl-sm border border-[#E3D7C8] bg-white/85 text-[#35453D] shadow-sm"
-                  }`}
-                >
-                  {message.text}
-                </div>
-              </div>
-            ))}
-
+            {/* Loading indicator */}
             {sending && (
               <div className="flex items-center gap-2 text-[10px] text-[#85786A]">
+
                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#F3ECE1] text-[#B85D3B]">
                   <Sparkles size={12} />
                 </span>
 
                 Rayna is checking the gallery…
+
               </div>
             )}
 
@@ -382,13 +409,14 @@ export default function ChatWidget() {
 
           </div>
 
-          {/* Input and support */}
+          {/* Input and contact options */}
           <div className="border-t border-[#E3D7C8] bg-[#F7F1E8] px-3.5 pb-3.5 pt-3 sm:px-4">
 
             <form
               onSubmit={handleSubmit}
               className="flex items-center gap-2"
             >
+
               <input
                 ref={inputRef}
                 value={input}
@@ -408,6 +436,7 @@ export default function ChatWidget() {
               >
                 <Send size={15} />
               </button>
+
             </form>
 
             <div className="mt-3 flex items-center justify-between gap-2 border-t border-[#E7DDD0] pt-3">
@@ -437,39 +466,39 @@ export default function ChatWidget() {
                 </a>
 
               </div>
+
             </div>
 
             <div className="mt-2 flex items-center justify-between">
 
               <a
                 href="/shipping-returns"
-                className="inline-flex items-center gap-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-[#B85D3B] hover:underline"
+                className="inline-flex items-center gap-1 text-[9px] font-semibold uppercase tracking-[.12em] text-[#B85D3B] hover:underline"
               >
                 Shipping & Returns
                 <ArrowUpRight size={11} />
               </a>
 
               <span className="text-[8px] text-[#A69A8D]">
-                {mode === "gemini"
-                  ? "Rayna · AI host"
-                  : "Rayna · Gallery assistant"}
+                {mode === 'gemini'
+                  ? 'Rayna · AI host'
+                  : 'Rayna · Gallery assistant'}
               </span>
 
             </div>
 
           </div>
+
         </section>
       )}
 
-      {/* ==============================
-          FLOATING RAYNA CHARACTER
-          No rectangular card, no border,
-          no background and no bouncing.
-      ============================== */}
+      {/* ======================================
+          FLOATING RAYNA PORTRAIT AND GREETING
+      ====================================== */}
 
       <div className="flex items-end justify-end gap-2 sm:gap-3">
 
-        {/* Greeting bubble */}
+        {/* Persistent, dismissible greeting */}
         {!greetingDismissed && !open && (
           <div className="rayna-greeting relative mb-16 flex w-[min(210px,calc(100vw-176px))] items-start gap-2 rounded-2xl rounded-br-md border border-[#E1D0B9] bg-[#FFFDF8] px-3.5 py-3 text-[11px] leading-5 text-[#35453D] shadow-[0_8px_28px_rgba(38,56,50,.12)] sm:mb-20">
 
@@ -482,7 +511,7 @@ export default function ChatWidget() {
               type="button"
               onClick={() => setGreetingDismissed(true)}
               className="-mr-1 -mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[#9A8874] transition hover:bg-[#F0E8DC] hover:text-[#B85D3B]"
-              aria-label="Dismiss greeting"
+              aria-label="Dismiss Rayna greeting"
               title="Dismiss"
             >
               <X size={12} />
@@ -491,7 +520,7 @@ export default function ChatWidget() {
           </div>
         )}
 
-        {/* Character and identity badge */}
+        {/* Rayna's unclipped high-resolution cutout */}
         <div className="flex shrink-0 flex-col items-center">
 
           <button
@@ -502,11 +531,6 @@ export default function ChatWidget() {
             aria-label="Chat with Rayna, your Artiste AI Assistant"
           >
 
-            {/* 
-              Original high-resolution image.
-              Native img is intentionally used instead of next/image.
-              No optimization, cropping, frame or background.
-            */}
             <span className="relative block h-36 w-36 shrink-0">
 
               {!avatarFailed ? (
@@ -528,7 +552,6 @@ export default function ChatWidget() {
 
             </span>
 
-            {/* Compact identity badge */}
             <span className="mt-0.5 rounded-full border border-[#DCC9AE] bg-[#F3ECE1]/90 px-3.5 py-1.5 font-serif text-[10px] font-semibold tracking-wide text-[#263832] transition group-hover:border-[#B85D3B] group-hover:bg-[#FFFDF8]">
               Rayna · AI Assistant
             </span>
@@ -538,7 +561,6 @@ export default function ChatWidget() {
         </div>
 
       </div>
-
     </div>
   );
 }
