@@ -65,3 +65,15 @@ button, input, select, textarea { font: inherit; }
   .site-navbar, .site-contact-bar, .site-footer, .concierge-widget { display: none !important; }
   body, .paper-grain { background: #fff !important; }
 }
+
+@keyframes rayna-pop {
+  0% { opacity: 0; transform: translateY(7px) scale(.97); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes rayna-wave {
+  0%, 100% { transform: rotate(0deg); }
+  18%, 48%, 78% { transform: rotate(16deg); }
+  33%, 63%, 90% { transform: rotate(-9deg); }
+}
+.rayna-welcome-pop { animation: rayna-pop .45s ease-out both; }
+.rayna-wave-hand { display: inline-block; transform-origin: 72% 78%; animation: rayna-wave 1.35s ease-in-out 1; }

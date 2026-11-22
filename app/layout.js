@@ -2,7 +2,7 @@ import './globals.css';
 import Script from 'next/script';
 import ContactBar from '@/components/ContactBar';
 import EditorialFooter from '@/components/EditorialFooter';
-import ArtisteConcierge from '@/components/ArtisteConcierge';
+import ChatWidget from '@/components/ChatWidget';
 import SiteNavbar from '@/components/SiteNavbar';
 
 export const metadata = {
@@ -20,7 +20,7 @@ export default function RootLayout({ children }) {
           <div className="flex-1">{children}</div>
           <EditorialFooter />
         </div>
-        <ArtisteConcierge />
+        <ChatWidget />
         <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="afterInteractive" />
       </body>
     </html>

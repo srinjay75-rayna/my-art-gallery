@@ -135,7 +135,7 @@ export default function SiteNavbar() {
   }
 
   const navLinks = [
-    { label: 'Collection', href: '/#collection' },
+    { label: 'Collection', href: '/#gallery' },
     { label: 'Our Artists', href: '/artists' },
     { label: 'Journal', href: '/#journal' },
     { label: 'Sell Art', href: '/artist' },
@@ -153,7 +153,7 @@ export default function SiteNavbar() {
   return (
     <header className="site-navbar sticky top-0 z-50 border-b border-[#D9C6A6]/70 shadow-[0_5px_22px_rgba(38,56,50,.045)]">
       <div className="mx-auto flex min-h-[76px] max-w-7xl items-center justify-between gap-3 px-4 sm:px-5 md:px-10">
-        <ArtisteLogo size={48} subtitle="The Indian art house" />
+        <ArtisteLogo size={48} subtitle="THE INDIAN ART HOUSE · MY ART GALLERY" />
         <nav className="hidden items-center gap-8 text-[10px] font-bold uppercase tracking-[.17em] text-[#53615A] md:flex" aria-label="Main navigation">
           {navLinks.map((link) => <Link key={link.label} href={link.href} className="site-nav-link hover:text-[#B85D3B]">{link.label}</Link>)}
         </nav>

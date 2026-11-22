@@ -12,7 +12,7 @@ export default function EditorialFooter() {
       <div className="pointer-events-none absolute -right-24 -top-28 h-72 w-72 rounded-full border border-[#c8b39a]/35" />
       <div className="mx-auto grid max-w-7xl gap-10 px-5 py-12 md:grid-cols-[1.15fr_.85fr_1fr] md:px-10 md:py-16">
         <div>
-<ArtisteLogo size={48} subtitle="The Indian art house" />
+<ArtisteLogo size={48} subtitle="THE INDIAN ART HOUSE · MY ART GALLERY" />
           <p className="mt-5 max-w-sm text-sm leading-7 text-[#74695e]">Artiste — Where Indian Heritage Meets Modern Walls. Every painting &amp; photograph carries a human heartbeat — curated from independent studios and delivered with love.</p>
           <a href={siteConfig.instagramUrl} target="_blank" rel="noreferrer" aria-label="Visit Artiste on Instagram" className="mt-5 inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#cbbdae] text-[#8c4a37] transition hover:-translate-y-0.5 hover:bg-[#fffaf3]"><Instagram size={17} strokeWidth={1.7} /></a>
         </div>
@@ -20,7 +20,7 @@ export default function EditorialFooter() {
         <div>
           <p className="eyebrow">Explore Artiste</p>
           <nav className="mt-5 grid gap-3 text-sm text-[#62584e]">
-            <Link href="/#collection" className="w-fit transition hover:text-[#B85D3B]">Gallery <ArrowUpRight className="ml-1 inline" size={12} /></Link>
+            <Link href="/#gallery" className="w-fit transition hover:text-[#B85D3B]">Gallery <ArrowUpRight className="ml-1 inline" size={12} /></Link>
             <Link href="/artists" className="w-fit transition hover:text-[#B85D3B]">Our Artists</Link>
             <Link href="/photography" className="w-fit transition hover:text-[#B85D3B]">Fine-Art Photography</Link>
             <Link href="/#journal" className="w-fit transition hover:text-[#B85D3B]">Journal · Indian Art &amp; Decor</Link>
