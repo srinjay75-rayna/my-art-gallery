@@ -455,6 +455,7 @@ begin
     return 'already_paid';
   end if;
   if current_order.status <> 'Pending' then return 'conflict'; end if;
+
   select array_agg((item->>'id')::uuid) into artwork_ids
   from jsonb_array_elements(coalesce(current_order.items, '[]'::jsonb)) as x(item)
   where coalesce(x.item->>'id', '') <> '';
@@ -462,14 +463,33 @@ begin
     begin artwork_ids := array[current_order.painting_id::uuid];
     exception when others then return 'conflict'; end;
   end if;
-  requested_count := cardinality(artwork_ids);
+
+  -- Lock all requested stock rows in a stable order so concurrent captures
+  -- cannot sell more copies than the creator has actually listed.
   perform id from public.paintings where id = any(artwork_ids) order by id for update;
-  select count(*) into available_count from public.paintings where id = any(artwork_ids) and is_sold = false and is_approved = true;
+  select count(*) into requested_count from (select distinct unnest(artwork_ids) as id) requested;
+  select count(*) into available_count
+  from public.paintings p
+  where p.id = any(artwork_ids)
+    and p.is_approved = true
+    and p.stock_quantity >= (
+      select count(*) from unnest(artwork_ids) requested_id where requested_id = p.id
+    );
   if available_count <> requested_count then
-    update public.orders set status = 'Payment conflict', razorpay_payment_id = p_payment_id, shipment_status = 'Manual review', shipment_note = 'Payment captured but one or more artworks were unavailable. Refund review required.' where id = p_order_id;
+    update public.orders set status = 'Payment conflict', razorpay_payment_id = p_payment_id, shipment_status = 'Manual review', shipment_note = 'Payment captured but one or more artworks had insufficient stock or were unavailable. Refund review required.' where id = p_order_id;
     return 'conflict';
   end if;
-  update public.paintings set is_sold = true where id = any(artwork_ids);
+
+  update public.paintings p
+  set stock_quantity = greatest(0, p.stock_quantity - requested.quantity),
+      is_sold = (p.stock_quantity - requested.quantity) <= 0
+  from (
+    select requested_id as id, count(*)::integer as quantity
+    from unnest(artwork_ids) requested_id
+    group by requested_id
+  ) requested
+  where p.id = requested.id;
+
   update public.orders set status = 'Paid', razorpay_payment_id = p_payment_id, paid_at = coalesce(paid_at, now()), shipment_status = 'Dispatch processing' where id = p_order_id;
   return 'paid';
 end;
@@ -713,7 +733,7 @@ grant all privileges on table public.paintings, public.orders, public.artists, p
 -- profile columns. Server routes using service_role retain full access.
 revoke select on table public.artists from anon, authenticated;
 revoke select (user_id, email, profile_photo_url, pickup_address, pickup_contact_name, pickup_phone, pickup_landmark, pickup_locality, pickup_pincode, pickup_location) on table public.artists from anon, authenticated;
-grant select (id, artist_name, bio, city, state, avatar_url, is_approved, is_suspended, created_at, updated_at) on table public.artists to anon, authenticated;
+grant select (id, artist_name, bio, city, state, avatar_url, creator_role, is_approved, is_suspended, created_at, updated_at) on table public.artists to anon, authenticated;
 -- TRUNCATE bypasses row-level security. Keep CRUD grants as requested, but never
 -- expose table-wide destructive / trigger privileges to browser roles.
 revoke truncate, references, trigger on table public.paintings, public.orders, public.artists, public.profiles from anon, authenticated;
@@ -869,3 +889,135 @@ comment on column public.order_shipments.courier_id is
   'Shiprocket courier ID; reserved -101 = Artiste local economy, -102 = free studio collection.';
 comment on column public.orders.courier_id is
   'Primary courier ID or Artiste reserved synthetic local delivery / studio pickup ID.';
+
+
+-- =============================================================================
+-- Artiste V8: creator roles, role-based commission, finite stock and bill IDs.
+-- Additive and safe to re-run. Existing paintings remain Painter / Painting by
+-- default; existing sold works migrate to zero stock and can be restocked later.
+-- =============================================================================
+
+alter table public.artists add column if not exists creator_role text;
+update public.artists set creator_role = 'Painter' where creator_role is null or creator_role not in ('Painter', 'Photographer');
+alter table public.artists alter column creator_role set default 'Painter';
+alter table public.artists alter column creator_role set not null;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'artists_creator_role_check') then
+    alter table public.artists add constraint artists_creator_role_check check (creator_role in ('Painter', 'Photographer'));
+  end if;
+end $$;
+
+alter table public.paintings add column if not exists stock_quantity integer;
+update public.paintings set stock_quantity = case when is_sold then 0 else 1 end where stock_quantity is null;
+alter table public.paintings alter column stock_quantity set default 1;
+alter table public.paintings alter column stock_quantity set not null;
+alter table public.paintings add column if not exists edition_details text not null default '';
+alter table public.paintings add column if not exists print_details text not null default '';
+update public.paintings set is_sold = (stock_quantity <= 0);
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'paintings_stock_quantity_nonnegative') then
+    alter table public.paintings add constraint paintings_stock_quantity_nonnegative check (stock_quantity >= 0);
+  end if;
+end $$;
+create index if not exists paintings_stock_available_idx on public.paintings(is_approved, stock_quantity, created_at desc);
+
+alter table public.artist_payouts add column if not exists creator_role text not null default 'Painter';
+alter table public.artist_payouts add column if not exists commission_rate numeric(5,4) not null default 0.0200;
+update public.artist_payouts ap set
+  creator_role = coalesce(a.creator_role, 'Painter'),
+  commission_rate = case when a.creator_role = 'Photographer' then 0.0500 else 0.0200 end
+from public.artists a where ap.artist_id = a.id;
+
+-- Store a stable Bill of Supply number on the paid order itself. The sequence is
+-- private implementation state; no user-facing table grant is added for it.
+create sequence if not exists public.artiste_bill_number_seq;
+alter table public.orders add column if not exists bill_number text;
+with missing as (
+  select id, created_at, nextval('public.artiste_bill_number_seq') as seq_no
+  from public.orders where bill_number is null order by created_at asc, id asc
+)
+update public.orders o
+set bill_number = 'BOS-AR-' || to_char(o.created_at at time zone 'Asia/Kolkata', 'YYYY') || '-' || lpad(missing.seq_no::text, 7, '0')
+from missing where o.id = missing.id;
+create unique index if not exists orders_bill_number_uidx on public.orders(bill_number) where bill_number is not null;
+create or replace function public.assign_artiste_bill_number()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if new.bill_number is null or btrim(new.bill_number) = '' then
+    new.bill_number := 'BOS-AR-' || to_char(coalesce(new.created_at, now()) at time zone 'Asia/Kolkata', 'YYYY') || '-' || lpad(nextval('public.artiste_bill_number_seq')::text, 7, '0');
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists assign_artiste_bill_number_trigger on public.orders;
+create trigger assign_artiste_bill_number_trigger before insert on public.orders for each row execute function public.assign_artiste_bill_number();
+revoke all on function public.assign_artiste_bill_number() from public, anon, authenticated;
+grant usage, select on sequence public.artiste_bill_number_seq to service_role;
+
+-- Recreate the payment RPC with atomic quantity deduction (one unit per line
+-- item in this cart implementation) and idempotent paid-order handling.
+create or replace function public.confirm_artiste_payment(p_order_id uuid, p_payment_id text)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_order public.orders%rowtype;
+  artwork_ids uuid[];
+  requested_count integer;
+  available_count integer;
+begin
+  select * into current_order from public.orders where id = p_order_id for update;
+  if not found then return 'not_found'; end if;
+  if current_order.status = 'Paid' then
+    if current_order.razorpay_payment_id is not null and current_order.razorpay_payment_id <> p_payment_id then return 'payment_mismatch'; end if;
+    update public.orders set razorpay_payment_id = coalesce(razorpay_payment_id, p_payment_id), paid_at = coalesce(paid_at, now()) where id = p_order_id;
+    return 'already_paid';
+  end if;
+  if current_order.status <> 'Pending' then return 'conflict'; end if;
+
+  select array_agg((item->>'id')::uuid) into artwork_ids
+  from jsonb_array_elements(coalesce(current_order.items, '[]'::jsonb)) as x(item)
+  where coalesce(x.item->>'id', '') <> '';
+  if artwork_ids is null or cardinality(artwork_ids) = 0 then
+    begin artwork_ids := array[current_order.painting_id::uuid];
+    exception when others then return 'conflict'; end;
+  end if;
+
+  -- Lock all requested stock rows in a stable order so concurrent captures
+  -- cannot sell more copies than the creator has actually listed.
+  perform id from public.paintings where id = any(artwork_ids) order by id for update;
+  select count(*) into requested_count from (select distinct unnest(artwork_ids) as id) requested;
+  select count(*) into available_count
+  from public.paintings p
+  where p.id = any(artwork_ids)
+    and p.is_approved = true
+    and p.stock_quantity >= (
+      select count(*) from unnest(artwork_ids) requested_id where requested_id = p.id
+    );
+  if available_count <> requested_count then
+    update public.orders set status = 'Payment conflict', razorpay_payment_id = p_payment_id, shipment_status = 'Manual review', shipment_note = 'Payment captured but one or more artworks had insufficient stock or were unavailable. Refund review required.' where id = p_order_id;
+    return 'conflict';
+  end if;
+
+  update public.paintings p
+  set stock_quantity = greatest(0, p.stock_quantity - requested.quantity),
+      is_sold = (p.stock_quantity - requested.quantity) <= 0
+  from (
+    select requested_id as id, count(*)::integer as quantity
+    from unnest(artwork_ids) requested_id
+    group by requested_id
+  ) requested
+  where p.id = requested.id;
+
+  update public.orders set status = 'Paid', razorpay_payment_id = p_payment_id, paid_at = coalesce(paid_at, now()), shipment_status = 'Dispatch processing' where id = p_order_id;
+  return 'paid';
+end;
+$$;
+
+revoke all on function public.confirm_artiste_payment(uuid, text) from public, anon, authenticated;
+grant execute on function public.confirm_artiste_payment(uuid, text) to service_role;

@@ -13,17 +13,24 @@ export async function PATCH(request, { params }) {
     const artist = await getArtistForUser(supabase, user.id);
     if (!artist) return NextResponse.json({ error: 'Artist profile not found.' }, { status: 404 });
     if (artist.is_suspended) return NextResponse.json({ error: 'Your Artist account is suspended by the Artiste owner.' }, { status: 403 });
-    const { data: existing, error: existingError } = await supabase.from('paintings').select('id,is_sold').eq('id', id).eq('artist_id', artist.id).maybeSingle();
+    const { data: existing, error: existingError } = await supabase.from('paintings').select('id,is_sold,stock_quantity').eq('id', id).eq('artist_id', artist.id).maybeSingle();
     if (existingError) throw existingError;
     if (!existing) return NextResponse.json({ error: 'Artwork not found.' }, { status: 404 });
-    if (existing.is_sold) return NextResponse.json({ error: 'Sold artworks cannot be edited.' }, { status: 409 });
-    const allowed = ['title', 'medium', 'dimensions', 'price', 'weight_kg', 'length_cm', 'breadth_cm', 'height_cm', 'category'];
+    const allowed = ['title', 'medium', 'dimensions', 'price', 'weight_kg', 'length_cm', 'breadth_cm', 'height_cm', 'category', 'edition_details', 'print_details'];
     const update = {};
     for (const key of allowed) if (body[key] !== undefined) update[key] = body[key];
+    if (body.stock_quantity !== undefined) {
+      const quantity = Number(body.stock_quantity);
+      if (!Number.isInteger(quantity) || quantity < 0 || quantity > 10000) return NextResponse.json({ error: 'Stock quantity must be a whole number from 0 to 10,000.' }, { status: 400 });
+      update.stock_quantity = quantity;
+      update.is_sold = quantity <= 0;
+    }
     if (body.is_sold !== undefined) {
-      if (body.is_sold !== true) return NextResponse.json({ error: 'Artists may mark available works as sold, but only the owner can reverse a sold status.' }, { status: 403 });
+      if (body.is_sold !== true) return NextResponse.json({ error: 'Use the stock controls to restock an item.' }, { status: 400 });
+      update.stock_quantity = 0;
       update.is_sold = true;
     }
+    if (existing.is_sold && Object.keys(update).some((key) => key !== 'stock_quantity' && key !== 'is_sold')) return NextResponse.json({ error: 'A sold-out listing can be restocked, but its details cannot be edited until it is available again.' }, { status: 409 });
     if (!Object.keys(update).length) return NextResponse.json({ error: 'No changes supplied.' }, { status: 400 });
     for (const key of ['price', 'weight_kg', 'length_cm', 'breadth_cm', 'height_cm']) {
       if (update[key] !== undefined && (!Number.isFinite(Number(update[key])) || Number(update[key]) <= 0)) return NextResponse.json({ error: `${key} must be a positive number.` }, { status: 400 });
@@ -45,9 +52,8 @@ export async function DELETE(request, { params }) {
     const artist = await getArtistForUser(supabase, user.id);
     if (!artist) return NextResponse.json({ error: 'Artist profile not found.' }, { status: 404 });
     if (artist.is_suspended) return NextResponse.json({ error: 'Your Artist account is suspended by the Artiste owner.' }, { status: 403 });
-    const { data: painting, error: readError } = await supabase.from('paintings').select('id,image_url,is_sold').eq('id', id).eq('artist_id', artist.id).single();
+    const { data: painting, error: readError } = await supabase.from('paintings').select('id,image_url').eq('id', id).eq('artist_id', artist.id).single();
     if (readError) throw readError;
-    if (painting.is_sold) return NextResponse.json({ error: 'Sold artworks cannot be deleted.' }, { status: 409 });
     const { error } = await supabase.from('paintings').delete().eq('id', id).eq('artist_id', artist.id);
     if (error) throw error;
     const marker = '/storage/v1/object/public/paintings/';

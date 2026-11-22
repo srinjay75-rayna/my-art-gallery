@@ -51,8 +51,8 @@ export async function POST(request) {
     const [{ data: profile, error: profileError }, { data: paintings, error: paintingError }] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
       supabase.from('paintings')
-        .select('id,title,medium,dimensions,price,weight_kg,length_cm,breadth_cm,height_cm,image_url,is_sold,is_approved,artist_id,artist_name')
-        .in('id', ids).eq('is_sold', false).eq('is_approved', true),
+        .select('id,title,medium,dimensions,price,weight_kg,length_cm,breadth_cm,height_cm,image_url,is_sold,is_approved,stock_quantity,artist_id,artist_name,category,edition_details,print_details')
+        .in('id', ids).eq('is_sold', false).gt('stock_quantity', 0).eq('is_approved', true),
     ]);
     if (profileError) throw profileError;
     if (paintingError) throw paintingError;
@@ -64,7 +64,7 @@ export async function POST(request) {
     const artistIds = [...new Set(paintings.map((painting) => painting.artist_id).filter(Boolean))];
     const paintingIds = paintings.map((painting) => painting.id);
     const [{ data: artists, error: artistsError }, { data: payoutAccounts, error: payoutError }, { data: legacyOrigins, error: originError }] = await Promise.all([
-      artistIds.length ? supabase.from('artists').select('id,user_id,artist_name,is_approved,pickup_contact_name,pickup_phone,pickup_address,pickup_landmark,pickup_locality,city,state,pickup_pincode,pickup_location').in('id', artistIds) : Promise.resolve({ data: [], error: null }),
+      artistIds.length ? supabase.from('artists').select('id,user_id,artist_name,creator_role,is_approved,pickup_contact_name,pickup_phone,pickup_address,pickup_landmark,pickup_locality,city,state,pickup_pincode,pickup_location').in('id', artistIds) : Promise.resolve({ data: [], error: null }),
       artistIds.length ? supabase.from('artist_payout_accounts').select('artist_id,account_holder_name,bank_account_number_encrypted,bank_account_number_masked,ifsc_code,bank_name,branch_name,upi_id,verified_at').in('artist_id', artistIds) : Promise.resolve({ data: [], error: null }),
       supabase.from('painting_shipping_origins').select('painting_id,pickup_pincode,pickup_location').in('painting_id', paintingIds),
     ]);
@@ -86,11 +86,13 @@ export async function POST(request) {
         return {
           ...painting,
           artist_name: artist.artist_name,
+          creator_role: artist.creator_role || 'Painter',
           pickup_pincode: artist.pickup_pincode,
           pickup_location: artist.pickup_location || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary',
           dispatchSnapshot: {
             artist_id: artist.id,
             artist_name: artist.artist_name,
+            creator_role: artist.creator_role || 'Painter',
             pickup_contact_name: artist.pickup_contact_name,
             pickup_phone: artist.pickup_phone,
             pickup_address: artist.pickup_address,
@@ -117,7 +119,7 @@ export async function POST(request) {
       const pickupPincode = legacy?.pickup_pincode || process.env.PICKUP_PINCODE || '';
       const pickupLocation = legacy?.pickup_location || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary';
       if (!/^\d{6}$/.test(String(pickupPincode))) throw new Error(`No valid pickup PIN code is configured for “${painting.title}”.`);
-      return { ...painting, artist_name: painting.artist_name || 'Artiste Studio', pickup_pincode: pickupPincode, pickup_location: pickupLocation, dispatchSnapshot: { artist_id: null, artist_name: 'Artiste Studio', pickup_pincode: pickupPincode, pickup_location: pickupLocation, payout_info: null } };
+      return { ...painting, creator_role: 'Painter', artist_name: painting.artist_name || 'Artiste Studio', pickup_pincode: pickupPincode, pickup_location: pickupLocation, dispatchSnapshot: { artist_id: null, artist_name: 'Artiste Studio', pickup_pincode: pickupPincode, pickup_location: pickupLocation, payout_info: null } };
     });
 
     const groups = groupPaintingsByPickup(enrichedPaintings);
@@ -169,7 +171,9 @@ export async function POST(request) {
     const artworkPrice = money(enrichedPaintings.reduce((sum, item) => sum + Number(item.price), 0));
     const orderItems = enrichedPaintings.map((painting) => {
       const price = money(painting.price);
-      const platformFee = money(price * 0.02);
+      const creatorRole = painting.creator_role === 'Photographer' ? 'Photographer' : 'Painter';
+      const commissionRate = creatorRole === 'Photographer' ? 0.05 : 0.02;
+      const platformFee = money(price * commissionRate);
       return {
         id: painting.id,
         title: painting.title,
@@ -181,6 +185,12 @@ export async function POST(request) {
         image_url: painting.image_url,
         artist_id: painting.artist_id,
         artist_name: painting.artist_name || 'Artiste Studio',
+        creator_role: creatorRole,
+        commission_rate: commissionRate,
+        category: painting.category || 'Painting',
+        edition_details: painting.edition_details || '',
+        print_details: painting.print_details || '',
+        quantity: 1,
       };
     });
     const platformFee = money(orderItems.reduce((sum, item) => sum + item.platform_fee, 0));

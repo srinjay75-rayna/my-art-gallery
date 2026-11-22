@@ -20,7 +20,7 @@ export async function GET(request) {
     let payoutAccount = null;
     if (artist) {
       const [{ data: payouts, error: payoutError }, { data: payout, error: payoutAccountError }] = await Promise.all([
-        supabase.from('artist_payouts').select('id,order_id,order_ref,artist_name,gross_amount,platform_fee,artist_payout,payout_status,paid_at,created_at').eq('artist_id', artist.id).order('created_at', { ascending: false }),
+        supabase.from('artist_payouts').select('id,order_id,order_ref,artist_name,creator_role,commission_rate,gross_amount,platform_fee,artist_payout,payout_status,paid_at,created_at').eq('artist_id', artist.id).order('created_at', { ascending: false }),
         supabase.from('artist_payout_accounts').select('artist_id,account_holder_name,bank_account_number_masked,ifsc_code,bank_name,branch_name,upi_id,verified_at,updated_at').eq('artist_id', artist.id).maybeSingle(),
       ]);
       if (payoutError) throw payoutError;
@@ -50,6 +50,7 @@ export async function POST(request) {
     const user = await getUserFromRequest(request, { accountType: 'artist' });
     const form = await request.formData();
     const artistName = String(form.get('artist_name') || '').trim();
+    const creatorRole = form.get('creator_role') === 'Photographer' ? 'Photographer' : 'Painter';
     const bio = String(form.get('bio') || '').trim();
     const city = String(form.get('city') || '').trim();
     const state = String(form.get('state') || '').trim();
@@ -65,7 +66,7 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Complete your Artist name, bio, pickup contact name, +91 mobile number, street address, landmark, locality, city, State / UT and valid 6-digit pickup PIN code.' }, { status: 400 });
     }
     const supabase = requireServiceRole();
-    const { data: existing, error: existingError } = await supabase.from('artists').select('id,profile_photo_url,avatar_url,is_approved,is_suspended').eq('user_id', user.id).maybeSingle();
+    const { data: existing, error: existingError } = await supabase.from('artists').select('id,profile_photo_url,avatar_url,is_approved,is_suspended,creator_role').eq('user_id', user.id).maybeSingle();
     if (existingError) throw existingError;
     let profilePhotoUrl = existing?.avatar_url || existing?.profile_photo_url || '';
     if (photo && typeof photo.arrayBuffer === 'function' && photo.size > 0) {
@@ -79,6 +80,7 @@ export async function POST(request) {
       user_id: user.id,
       email: String(user.email || '').toLowerCase(),
       artist_name: artistName,
+      creator_role: creatorRole,
       bio,
       city,
       state,

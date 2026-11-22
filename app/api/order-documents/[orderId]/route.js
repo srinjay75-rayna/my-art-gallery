@@ -13,6 +13,7 @@ export async function GET(request, { params }) {
       return NextResponse.json({ error: 'Invalid order reference.' }, { status: 400 });
     }
 
+    const documentMode = new URL(request.url).searchParams.get('mode') || 'invoice';
     const owner = await isAdminRequest();
     let user = null;
     if (!owner) user = await getUserFromRequest(request);
@@ -28,21 +29,25 @@ export async function GET(request, { params }) {
 
     let role = owner ? 'owner' : 'customer';
     let artistId = null;
+    let artistNameForRequest = '';
     if (!owner) {
       const email = String(user.email || '').trim().toLowerCase();
       const userType = user.user_metadata?.account_type;
       if (userType === 'artist') {
         role = 'artist';
-        const { data: artist, error: artistError } = await supabase.from('artists').select('id').eq('user_id', user.id).maybeSingle();
+        const { data: artist, error: artistError } = await supabase.from('artists').select('id,artist_name').eq('user_id', user.id).maybeSingle();
         if (artistError) throw artistError;
         artistId = artist?.id || null;
+        const artistName = String(artist?.artist_name || '').trim().toLowerCase();
+        artistNameForRequest = artistName;
+        if (documentMode !== 'packing-slip') return NextResponse.json({ error: 'Official customer Bills of Supply are available to the purchasing Customer and Artiste owner.' }, { status: 403 });
         const [{ data: payoutRows, error: payoutError }, { data: shipmentRowsForArtist, error: shipmentError }] = await Promise.all([
           artistId ? supabase.from('artist_payouts').select('id').eq('order_id', orderId).eq('artist_id', artistId).limit(1) : Promise.resolve({ data: [], error: null }),
           artistId ? supabase.from('order_shipments').select('id').eq('order_id', orderId).eq('artist_id', artistId).limit(1) : Promise.resolve({ data: [], error: null }),
         ]);
         if (payoutError) throw payoutError;
         if (shipmentError) throw shipmentError;
-        const lineItemAccess = (Array.isArray(order.items) ? order.items : []).some((item) => String(item.artist_id || '') === String(artistId || ''));
+        const lineItemAccess = (Array.isArray(order.items) ? order.items : []).some((item) => String(item.artist_id || '') === String(artistId || '') || (!item.artist_id && artistName && String(item.artist_name || '').trim().toLowerCase() === artistName));
         if (!artistId || (!lineItemAccess && !payoutRows?.length && !shipmentRowsForArtist?.length)) {
           return NextResponse.json({ error: 'This order is not associated with your Artist studio.' }, { status: 403 });
         }
@@ -62,6 +67,11 @@ export async function GET(request, { params }) {
     const safeItems = storedItems.length ? storedItems.map((item) => ({
       id: item.id,
       title: item.title || item.painting_title || 'Original artwork',
+      category: item.category || 'Painting',
+      creator_role: item.creator_role || 'Painter',
+      edition_details: item.edition_details || '',
+      print_details: item.print_details || '',
+      quantity: Number(item.quantity || 1),
       medium: item.medium || '',
       dimensions: item.dimensions || '',
       price: Number(item.price ?? item.unit_price ?? 0),
@@ -87,6 +97,7 @@ export async function GET(request, { params }) {
     const safeOrder = {
       id: order.id,
       merchant_order_ref: order.merchant_order_ref,
+      bill_number: order.bill_number || null,
       created_at: order.created_at,
       paid_at: order.paid_at,
       status: order.status,
@@ -132,7 +143,10 @@ export async function GET(request, { params }) {
       })),
     };
 
-    return NextResponse.json({ order: safeOrder, items: safeItems, shipments: safeOrder.shipments, role });
+    const displayItems = role === 'artist'
+      ? safeItems.filter((item) => String(item.artist_id || '') === String(artistId || '') || (!item.artist_id && String(item.artist_name || '').trim().toLowerCase() === artistNameForRequest))
+      : safeItems;
+    return NextResponse.json({ order: safeOrder, items: displayItems, shipments: safeOrder.shipments, role });
   } catch (error) {
     return NextResponse.json({ error: error.message || 'Could not load this order document.' }, { status: 401 });
   }

@@ -18,7 +18,7 @@ export async function PATCH(request, { params }) {
     const body = await request.json();
     if (typeof body.is_sold !== 'boolean' && typeof body.is_approved !== 'boolean') return NextResponse.json({ error: 'Provide is_sold or is_approved.' }, { status: 400 });
     const update = {};
-    if (typeof body.is_sold === 'boolean') update.is_sold = body.is_sold;
+    if (typeof body.is_sold === 'boolean') { update.is_sold = body.is_sold; update.stock_quantity = body.is_sold ? 0 : 1; }
     if (typeof body.is_approved === 'boolean') update.is_approved = body.is_approved;
     const supabase = requireServiceRole();
     if (body.is_approved === true) {

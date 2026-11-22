@@ -1,6 +1,6 @@
-# Artiste v7 — Original Paintings & Fine-Art Photography Marketplace
+# Artiste v8 — Original Paintings & Fine-Art Photography Marketplace
 
-Artiste v7 upgrades the existing Next.js App Router + JavaScript + Tailwind + Supabase + Shiprocket + Razorpay project while retaining the Artiste brand, A monogram, warm editorial gallery styling, existing API integrations, and the additive v3 database migration.
+Artiste v8 upgrades the existing Next.js App Router + JavaScript + Tailwind + Supabase + Shiprocket + Razorpay project while retaining the Artiste brand, A monogram, warm editorial gallery styling, existing API integrations, and the additive v3 database migration.
 
 
 ## Version 7 — creator showcase & fine-art photography
@@ -13,6 +13,18 @@ Artiste v7 upgrades the existing Next.js App Router + JavaScript + Tailwind + Su
 - The public brand tagline is now: “Artiste — Original Paintings & Fine-Art Photography, Delivered With Love From Independent Indian Studios to Your Home.”
 
 Run the updated `database/schema.sql` in Supabase before deploying V7 so the additive `paintings.category` column is available. Existing paintings automatically receive the `Painting` default.
+
+## Version 8 — conversational Concierge, creator roles, stock and accounting
+
+- Added a server-side `/api/chat` Gemini integration using native `fetch` only. `GEMINI_API_KEY` stays server-side; when it is missing or Gemini is unavailable, a contextual support fallback remains available. The floating Concierge includes quick topics and WhatsApp / email escalation.
+- Added Painter and Photographer creator roles in onboarding and profile editing. Public titles distinguish **Artist · Artist Studio** from **Photographer · Photography Studio**. Commission schedules are private: Painters 2% / 98% payout; Photographers 5% / 95% payout.
+- Expanded the Photography Wing with creator portraits, edition / print metadata and direct customer-cart actions.
+- Added stock quantity controls, restocking and listing deletion in the Creator Portal. A secure payment-confirmation RPC decrements stock atomically only after payment confirmation and marks listings sold out at zero.
+- Added sequential `BOS-AR-YYYY-#######` Bill of Supply numbers, print-ready `/invoice/[orderId]` documents and prominent invoice access in My Orders.
+- Added a private **ACCOUNTS & LEDGER** tab to `/studio-vault-owner`, including sale, shipping, commission, net payout, status controls and CSV export.
+- No additional npm packages were introduced. Gemini requests use the platform's built-in `fetch`; Gemini API usage is subject to Google's free-tier model availability and rate limits.
+
+Before deploying V8, run the complete updated `database/schema.sql` in the Supabase SQL Editor. Set `GEMINI_API_KEY` on the server to enable Gemini; leave it unset to use the fallback Concierge. Also configure the existing Supabase, SMTP, Razorpay, Shiprocket and `ADMIN_PASSWORD` environment variables described below.
 
 ## V4 changes
 

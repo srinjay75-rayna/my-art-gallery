@@ -52,8 +52,12 @@ export async function POST(request) {
     const medium = String(form.get('medium') || '').trim();
     const dimensions = String(form.get('dimensions') || '').trim();
     const requestedCategory = String(form.get('category') || 'Painting').trim();
+    const stockQuantity = Number(form.get('stock_quantity') || 1);
+    const editionDetails = String(form.get('edition_details') || '').trim().slice(0, 180);
+    const printDetails = String(form.get('print_details') || '').trim().slice(0, 240);
     const category = requestedCategory === 'Photography' || requestedCategory === 'Fine-Art Photography' ? 'Photography' : requestedCategory === 'Painting' || requestedCategory === 'Original Painting' ? 'Painting' : null;
     if (!category) return NextResponse.json({ error: 'Choose Original Painting or Fine-Art Photography.' }, { status: 400 });
+    if (!Number.isInteger(stockQuantity) || stockQuantity < 1 || stockQuantity > 10000) return NextResponse.json({ error: 'Stock quantity must be a whole number from 1 to 10,000.' }, { status: 400 });
     const numeric = {};
     for (const field of ['price', 'length_cm', 'breadth_cm', 'height_cm', 'weight_kg']) {
       numeric[field] = Number(form.get(field));
@@ -66,7 +70,7 @@ export async function POST(request) {
     if (uploadError) throw uploadError;
     const imageUrl = supabase.storage.from('paintings').getPublicUrl(uploaded).data.publicUrl;
     const { data, error } = await supabase.from('paintings').insert({
-      title, medium, dimensions, category, ...numeric, image_url: imageUrl, is_sold: false,
+      title, medium, dimensions, category, ...numeric, image_url: imageUrl, stock_quantity: stockQuantity, edition_details: editionDetails, print_details: printDetails, is_sold: false,
       artist_id: artistProfile.id, artist_name: artistProfile.artist_name, avatar_url: artistProfile.avatar_url || artistProfile.profile_photo_url || '', is_approved: true, pickup_pincode: null, pickup_location: 'Primary',
     }).select('*').single();
     if (error) throw error;

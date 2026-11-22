@@ -15,15 +15,16 @@ export default async function PhotographyPage() {
 
   try {
     const { data, error } = await supabase.from('paintings')
-      .select('id,title,medium,dimensions,price,weight_kg,length_cm,breadth_cm,height_cm,image_url,is_sold,artist_id,artist_name,avatar_url,is_approved,category')
+      .select('id,title,medium,dimensions,price,weight_kg,length_cm,breadth_cm,height_cm,image_url,is_sold,artist_id,artist_name,avatar_url,is_approved,category,stock_quantity,edition_details,print_details')
       .eq('is_sold', false)
+      .gt('stock_quantity', 0)
       .eq('is_approved', true)
       .order('created_at', { ascending: false });
     if (error) throw error;
     paintings = data || [];
 
     const { data: artistData, error: artistError } = await supabase.from('artists')
-      .select('id,artist_name,avatar_url,city,state,bio,is_approved,is_suspended')
+      .select('id,artist_name,avatar_url,city,state,bio,creator_role,is_approved,is_suspended')
       .eq('is_approved', true)
       .eq('is_suspended', false)
       .order('artist_name');
@@ -32,7 +33,7 @@ export default async function PhotographyPage() {
     const artistMap = new Map(artists.map((artist) => [artist.id, artist]));
     paintings = paintings.map((painting) => {
       const artist = artistMap.get(painting.artist_id);
-      return artist ? { ...painting, artist_name: artist.artist_name, avatar_url: artist.avatar_url || painting.avatar_url } : painting;
+      return artist ? { ...painting, artist_name: artist.artist_name, creator_role: artist.creator_role || 'Painter', avatar_url: artist.avatar_url || painting.avatar_url } : painting;
     });
   } catch (error) {
     console.error('Photography gallery load failed:', error.message);

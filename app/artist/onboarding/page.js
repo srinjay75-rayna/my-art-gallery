@@ -39,6 +39,7 @@ export default function ArtistOnboardingPage() {
   const [session, setSession] = useState(null);
   const [artist, setArtist] = useState(null);
   const [artistName, setArtistName] = useState('');
+  const [creatorRole, setCreatorRole] = useState('Painter');
   const [bio, setBio] = useState('');
   const [pickupLocation, setPickupLocation] = useState('Primary');
   const [address, setAddress] = useState(emptyAddress);
@@ -79,6 +80,7 @@ export default function ArtistOnboardingPage() {
         const a = dataResult.artist || null;
         setArtist(a);
         setArtistName(a?.artist_name || metadata.artist_name || metadata.full_name || '');
+        setCreatorRole(a?.creator_role === 'Photographer' ? 'Photographer' : 'Painter');
         setBio(a?.bio || '');
         setPickupLocation(a?.pickup_location || 'Primary');
         setAddress({
@@ -129,6 +131,7 @@ export default function ArtistOnboardingPage() {
 
       const form = new FormData();
       form.set('artist_name', artistName.trim());
+      form.set('creator_role', creatorRole);
       form.set('bio', bio.trim());
       form.set('city', address.city.trim());
       form.set('state', address.state.trim());
@@ -163,16 +166,16 @@ export default function ArtistOnboardingPage() {
   if (loading) return <main className="paper-grain min-h-screen px-5 py-16"><div className="mx-auto max-w-3xl rounded-3xl border border-[#e5dccf] bg-[#fffdf8] p-10 text-center"><ShieldCheck size={28} className="mx-auto text-clay" /><h1 className="mt-3 font-display text-2xl">Verifying your Artist access…</h1></div></main>;
 
   return <main className="paper-grain min-h-screen px-5 py-8 md:px-10"><div className="mx-auto max-w-4xl">
-    <header className="mb-10 flex items-center justify-between"><a href="/" className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-full border border-clay/40 font-display text-xl text-clay">A</span><span className="font-display text-2xl">Artiste</span></a><a href="/artist" className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-clay"><ArrowLeft size={14} /> Artist Portal</a></header>
+    <header className="mb-10 flex items-center justify-between"><a href="/" className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-full border border-clay/40 font-display text-xl text-clay">A</span><span className="font-display text-2xl">Artiste</span></a><a href="/artist" className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-clay"><ArrowLeft size={14} /> Creator Portal</a></header>
     <p className="eyebrow flex items-center gap-2"><BadgeCheck size={14} /> Email verified · Step 2 of 2</p>
-    <h1 className="mt-3 font-display text-5xl">Set up your <em className="font-normal text-clay">Artist studio.</em></h1>
-    <p className="mt-3 max-w-2xl text-sm leading-7 text-muted">Complete your Artist profile, studio pickup details and IFSC-verified payout destination. Once saved, your Artist studio activates automatically and you can publish original work immediately.</p>
+    <h1 className="mt-3 font-display text-5xl">Set up your <em className="font-normal text-clay">Creator studio.</em></h1>
+    <p className="mt-3 max-w-2xl text-sm leading-7 text-muted">Choose Painter or Photographer, then complete your creator profile, studio pickup details and IFSC-verified payout destination. Once saved, your Creator studio activates automatically and you can publish original work immediately.</p>
     <div className="mt-6 rounded-2xl border border-[#e5dccf] bg-[#f7f1e8] p-4 text-sm"><p className="font-semibold">{artistName || 'Artist'} · {session?.user?.email}</p><p className="mt-1 text-xs text-muted">+91 {phoneDigits} · Studio &amp; payout information stays private.</p></div>
     {error && <p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}{notice && <p role="status" className="mt-5 rounded-xl bg-green-50 p-3 text-sm text-green-800">{notice}</p>}
     <form onSubmit={save} className="mt-6 grid gap-6">
       <section className="rounded-3xl border border-[#e5dccf] bg-[#fffdf8] p-6 shadow-soft">
         <h2 className="flex items-center gap-2 font-display text-2xl"><UserRoundPlus size={20} className="text-clay" /> Artist Profile</h2>
-        <div className="mt-4 grid gap-4"><label className="label">Artist / Studio Name<input className="field mt-1" required minLength={2} maxLength={100} value={artistName} onChange={(e) => setArtistName(e.target.value)} /></label><label className="label">Artist Biography<textarea className="field mt-1 min-h-28" required maxLength={1200} value={bio} onChange={(e) => setBio(e.target.value)} placeholder="Tell collectors about your practice, inspirations and medium." /></label><label className="label flex items-center gap-2">Portfolio / Profile Photo <span className="text-[10px] font-normal text-muted">(optional)</span><input type="file" accept="image/jpeg,image/png,image/webp,image/avif" onChange={(e) => setPhoto(e.target.files?.[0] || null)} className="mt-2 block w-full text-xs" /></label></div>
+        <div className="mt-4 grid gap-4"><label className="label">Creator Role<select className="field mt-1" value={creatorRole} onChange={(e) => setCreatorRole(e.target.value)}><option value="Painter">Painter (displayed as Artist)</option><option value="Photographer">Photographer</option></select></label><label className="label">Creator / Studio Name<input className="field mt-1" required minLength={2} maxLength={100} value={artistName} onChange={(e) => setArtistName(e.target.value)} /></label><label className="label">Artist Biography<textarea className="field mt-1 min-h-28" required maxLength={1200} value={bio} onChange={(e) => setBio(e.target.value)} placeholder="Tell collectors about your practice, inspirations and medium." /></label><label className="label flex items-center gap-2">Portfolio / Profile Photo <span className="text-[10px] font-normal text-muted">(optional)</span><input type="file" accept="image/jpeg,image/png,image/webp,image/avif" onChange={(e) => setPhoto(e.target.files?.[0] || null)} className="mt-2 block w-full text-xs" /></label></div>
       </section>
       <section className="rounded-3xl border border-[#e5dccf] bg-[#fffdf8] p-6 shadow-soft">
         <h2 className="flex items-center gap-2 font-display text-2xl"><MapPin size={20} className="text-clay" /> Studio Pickup Address</h2>
@@ -196,8 +199,8 @@ export default function ArtistOnboardingPage() {
           </div>
         </>}
       </section>
-      <button disabled={busy} className="btn-primary flex items-center justify-center gap-2">{busy ? 'Saving your Artist profile…' : 'Save profile & continue to Artist Portal'} <ArrowUpRight size={15} /></button>
-      <p className="text-center text-[10px] leading-5 text-muted">Your Artist studio activates automatically after your profile and verified payout details are saved. Your payout and pickup information remains private.</p>
+      <button disabled={busy} className="btn-primary flex items-center justify-center gap-2">{busy ? 'Saving your Artist profile…' : 'Save profile & continue to Creator Portal'} <ArrowUpRight size={15} /></button>
+      <p className="text-center text-[10px] leading-5 text-muted">Your Creator studio activates automatically after your profile and verified payout details are saved. Your payout and pickup information remains private.</p>
     </form>
   </div></main>;
 }

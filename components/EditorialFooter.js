@@ -27,7 +27,7 @@ export default function EditorialFooter() {
             <Link href="/photography" className="w-fit transition hover:text-[#a24d36]">Fine-Art Photography</Link>
             <Link href="/#story" className="w-fit transition hover:text-[#a24d36]">Our Story</Link>
             <Link href="/account" className="w-fit transition hover:text-[#a24d36]">For Cuṣtomers</Link>
-            <Link href="/artist" className="w-fit transition hover:text-[#a24d36]">For Artiṣte</Link>
+            <Link href="/artist" className="w-fit transition hover:text-[#a24d36]">For Creators — Painters &amp; Photographers</Link>
             <Link href="/shipping-returns" className="w-fit transition hover:text-[#a24d36]">Shipping &amp; Returns</Link>
           </nav>
         </div>
