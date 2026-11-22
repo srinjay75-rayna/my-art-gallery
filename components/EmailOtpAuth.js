@@ -166,7 +166,7 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
   }
 
   return (
-    <section className="overflow-hidden rounded-3xl border border-[#e5dccf] bg-[#fffdf8] shadow-soft">
+    <section className="overflow-hidden rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] shadow-soft">
       <div className="grid grid-cols-2 border-b border-[#e9e0d5] p-2">
         <button
           type="button"
@@ -215,7 +215,7 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
               </label>
               <label className="label">
                 Mobile Number <span className="normal-case tracking-normal text-clay">+91</span>
-                <div className="mt-1 flex items-center rounded-xl border border-[#ded6ca] bg-[#fffefa] px-3">
+                <div className="mt-1 flex items-center rounded-xl border border-[#D9C6A6] bg-[#FAF6F0] px-3">
                   <span className="mr-2 text-sm text-muted">+91</span>
                   <input className="w-full bg-transparent py-3 text-sm outline-none disabled:opacity-60" type="tel" inputMode="numeric" autoComplete="tel-national" required pattern="[0-9]{10}" maxLength={10} disabled={otpSent || busy} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="10-digit mobile number" />
                 </div>

@@ -3,10 +3,11 @@ import Script from 'next/script';
 import ContactBar from '@/components/ContactBar';
 import EditorialFooter from '@/components/EditorialFooter';
 import ArtisteConcierge from '@/components/ArtisteConcierge';
+import SiteNavbar from '@/components/SiteNavbar';
 
 export const metadata = {
   title: 'Artiste — Original Paintings & Fine-Art Photography',
-  description: 'Artiste — Original Paintings & Fine-Art Photography, Delivered With Love From Independent Indian Studios to Your Home.',
+  description: 'Artiste — Where Indian Heritage Meets Modern Walls. Every painting & photograph carries a human heartbeat, curated from independent studios and delivered with love.',
 };
 
 export default function RootLayout({ children }) {
@@ -15,6 +16,7 @@ export default function RootLayout({ children }) {
       <body>
         <div className="flex min-h-screen flex-col">
           <ContactBar />
+          <SiteNavbar />
           <div className="flex-1">{children}</div>
           <EditorialFooter />
         </div>

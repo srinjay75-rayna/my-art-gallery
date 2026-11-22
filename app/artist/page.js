@@ -154,6 +154,13 @@ export default function ArtistPage() {
   }, [session?.user?.id, router]);
 
   useEffect(() => {
+    if (!authLoading && artist && typeof window !== 'undefined' && window.location.hash) {
+      const targetId = window.location.hash.slice(1);
+      window.requestAnimationFrame(() => document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    }
+  }, [authLoading, artist]);
+
+  useEffect(() => {
     if (!profilePhoto) {
       setProfilePhotoPreview('');
       return undefined;
@@ -268,10 +275,10 @@ export default function ArtistPage() {
   const addressLine = [artist?.pickup_address, artist?.pickup_landmark, artist?.pickup_locality, artist?.city, artist?.state, artist?.pickup_pincode].filter(Boolean).join(', ');
   const isSuspended = Boolean(artist?.is_suspended);
 
-  if (authLoading) return <main className="paper-grain min-h-screen px-5 py-16"><div className="mx-auto max-w-3xl rounded-3xl border border-[#e5dccf] bg-[#fffdf8] p-10 text-center"><ShieldCheck size={28} className="mx-auto text-clay"/><h1 className="mt-3 font-display text-2xl">Securing your Artist Portal…</h1></div></main>;
+  if (authLoading) return <main className="paper-grain min-h-screen px-5 py-16"><div className="mx-auto max-w-3xl rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] p-10 text-center"><ShieldCheck size={28} className="mx-auto text-clay"/><h1 className="mt-3 font-display text-2xl">Securing your Artist Portal…</h1></div></main>;
 
   return <main className="paper-grain min-h-screen px-5 py-8 md:px-10"><div className="mx-auto max-w-6xl">
-    <header className="mb-9 flex items-center justify-between"><a href="/" className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-full border border-clay/40 font-display text-xl text-clay">A</span><span className="font-display text-2xl">Artiste</span></a><a href="/" className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-clay"><ArrowLeft size={14}/> Gallery</a></header>
+    <div className="mb-8 flex justify-end"><a href="/#gallery" className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-clay"><ArrowLeft size={14}/> Back to Collection</a></div>
     <p className="eyebrow flex items-center gap-2"><Palette size={14}/> For Creators — Painters &amp; Photographers</p>
     <div className="mt-3 flex flex-wrap items-center gap-4">
       {session && <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full border-4 border-[#e9d8c4] bg-[#f1e8dc] shadow-soft">{avatarUrl ? <img src={avatarUrl} alt={`${artist?.artist_name || 'Artist'} profile`} className="h-full w-full rounded-full object-cover"/> : <span className="font-display text-3xl text-clay">A</span>}</div>}
@@ -282,12 +289,12 @@ export default function ArtistPage() {
 
     {!session ? <div className="mt-8 max-w-xl"><EmailOtpAuth accountType="artist"/></div> : <>
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-muted">Verified Creator account <b className="text-ink">{session.user.email}</b></p><button onClick={logout} className="action-btn inline-flex items-center gap-2"><LogOut size={14}/> Sign out</button></div>
-      {profileChecking && !artist && <div className="mt-5 rounded-2xl border border-[#e5dccf] bg-[#fffdf8] p-5 text-sm text-muted">Loading your Artist studio…</div>}
+      {profileChecking && !artist && <div className="mt-5 rounded-2xl border border-[#D9C6A6] bg-[#F3ECE1] p-5 text-sm text-muted">Loading your Artist studio…</div>}
       {artist && <>
         {isSuspended && <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-900"><b>Your Artist studio is currently suspended.</b><p className="mt-1 text-xs leading-5">Your existing records remain safe, but you cannot publish or sell artworks while the studio is suspended. Please contact Artiste support for assistance.</p></div>}
 
         <div className="mt-7 grid items-start gap-7 lg:grid-cols-[.9fr_1.1fr]">
-          <section className="rounded-3xl border border-[#e5dccf] bg-[#fffdf8] p-6 shadow-soft md:p-7">
+          <section className="rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] p-6 shadow-soft md:p-7">
             <p className="eyebrow flex items-center gap-2"><Palette size={13}/> {artist?.creator_role === 'Photographer' ? 'Photography Studio' : 'Artist Studio'}</p>
             <h2 className="mt-2 font-display text-3xl">List an Artwork</h2>
             <p className="mt-2 text-xs leading-5 text-muted">Your verified {artist?.creator_role === 'Photographer' ? 'Photographer' : 'Artist'} studio can publish original paintings and fine-art photography directly to the Artiste gallery.</p>
@@ -305,10 +312,10 @@ export default function ArtistPage() {
           </section>
 
           <section className="min-w-0">
-            <div className="rounded-3xl border border-[#e5dccf] bg-[#fffdf8] p-6 shadow-soft md:p-7">
+            <div className="rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] p-6 shadow-soft md:p-7">
               <p className="eyebrow flex items-center gap-2"><Wallet size={13}/> {artist?.creator_role === 'Photographer' ? 'Photographer workspace' : 'Artist workspace'}</p>
-              <h2 className="mt-2 font-display text-3xl">My Works &amp; Earnings</h2>
-              <div className="mt-5 grid gap-3">{artworks.map((painting) => <article key={painting.id} className="flex gap-3 rounded-2xl border border-[#e5dccf] bg-[#fffdf8] p-3">
+              <h2 id="earnings" className="mt-2 scroll-mt-28 font-display text-3xl">My Works &amp; Earnings</h2>
+              <div className="mt-5 grid gap-3">{artworks.map((painting) => <article key={painting.id} className="flex gap-3 rounded-2xl border border-[#D9C6A6] bg-[#F3ECE1] p-3">
                 <img src={painting.image_url} alt={painting.title} className="h-24 w-20 rounded-xl object-cover"/>
                 <div className="min-w-0 flex-1"><h3 className="font-display text-xl">{painting.title}</h3><p className="text-xs text-muted">{painting.category === 'Photography' ? 'Fine-Art Photography' : 'Original Painting'} · {money(painting.price)} · {Number(painting.stock_quantity ?? (painting.is_sold ? 0 : 1)) <= 0 ? 'SOLD OUT' : `${Number(painting.stock_quantity ?? 1)} in stock`} · {painting.is_approved ? 'Published' : 'Unpublished by Artiste'}</p>{painting.category === 'Photography' && <p className="mt-1 text-[10px] text-muted">{[painting.edition_details, painting.print_details].filter(Boolean).join(' · ')}</p>}<div className="mt-3 flex flex-wrap items-center gap-2"><button type="button" className="action-btn" disabled={busy || isSuspended || Number(painting.stock_quantity ?? (painting.is_sold ? 0 : 1)) <= 0} onClick={() => updateStock(painting, Math.max(0, Number(painting.stock_quantity ?? 1) - 1))}>− Stock</button><input aria-label={`Stock quantity for ${painting.title}`} className="field !w-20 !px-2 !py-1 text-center" type="number" min="0" max="10000" step="1" value={painting.stock_quantity ?? (painting.is_sold ? 0 : 1)} disabled={busy || isSuspended} onChange={(event) => setArtworks((current) => current.map((item) => item.id === painting.id ? { ...item, stock_quantity: event.target.value } : item))} /><button type="button" className="action-btn" disabled={busy || isSuspended} onClick={() => updateStock(painting, painting.stock_quantity)}>Save stock</button><button type="button" className="action-btn" disabled={busy || isSuspended || Number(painting.stock_quantity ?? 0) >= 10000} onClick={() => updateStock(painting, Math.min(10000, Number(painting.stock_quantity ?? 0) + 1))}>+ Restock</button><button type="button" className="action-btn danger" disabled={busy} onClick={() => remove(painting)}>Delete listing</button></div></div>
               </article>)}{!artworks.length && <p className="rounded-2xl border border-dashed p-7 text-center text-sm text-muted">Your published paintings and fine-art photographs will appear here.</p>}</div>
@@ -317,11 +324,11 @@ export default function ArtistPage() {
           </section>
         </div>
 
-        <section className="mt-8 rounded-3xl border border-[#e5dccf] bg-[#fffdf8] p-6 shadow-soft md:p-8">
+        <section id="profile" className="mt-8 scroll-mt-28 rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] p-6 shadow-soft md:p-8">
           <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="eyebrow flex items-center gap-2"><BadgeCheck size={13}/> Studio &amp; payout profile</p><h2 className="mt-2 font-display text-3xl">Your saved Artist details</h2><p className="mt-1 text-xs leading-5 text-muted">Your studio pickup address and verified payout destination are kept private.</p></div><button type="button" onClick={() => { setEditingDetails((value) => !value); setEditingPayout(!editingDetails && Boolean(payoutAccount?.verified_at)); }} className="btn-secondary">{editingDetails ? 'Close editor' : 'Edit Studio & Bank Details'}</button></div>
           {!editingDetails ? <div className="mt-5 grid gap-4 md:grid-cols-2">
-            <div className="rounded-2xl bg-[#f7f1e8] p-4"><div className="flex items-center gap-2 font-semibold"><MapPin size={16} className="text-clay"/> Studio pickup</div><p className="mt-2 text-sm font-semibold">{artist.creator_role === 'Photographer' ? 'Photographer' : 'Artist'} · {artist.artist_name}</p><p className="mt-1 text-xs leading-6 text-muted">{addressLine || 'Pickup address not saved'}</p><p className="mt-1 text-xs text-muted">{artist.pickup_contact_name} · {artist.pickup_phone}</p><p className="mt-1 text-[10px] text-muted">Shiprocket location: {artist.pickup_location || 'Primary'}</p></div>
-            <div className="rounded-2xl bg-[#f7f1e8] p-4"><div className="flex items-center gap-2 font-semibold"><Landmark size={16} className="text-clay"/> Verified bank / UPI</div>{payoutAccount?.verified_at ? <><p className="mt-2 text-sm font-semibold">{payoutAccount.bank_name} · {payoutAccount.branch_name}</p><p className="mt-1 text-xs leading-6 text-muted">{payoutAccount.account_holder_name} · {payoutAccount.bank_account_number_masked} · {payoutAccount.ifsc_code}</p><p className="mt-1 text-xs text-muted">{payoutAccount.upi_id ? `UPI: ${payoutAccount.upi_id}` : 'No UPI ID saved'}</p></> : <p className="mt-2 text-xs text-muted">Payout details not verified.</p>}</div>
+            <div className="rounded-2xl bg-[#F3ECE1] p-4"><div className="flex items-center gap-2 font-semibold"><MapPin size={16} className="text-clay"/> Studio pickup</div><p className="mt-2 text-sm font-semibold">{artist.creator_role === 'Photographer' ? 'Photographer' : 'Artist'} · {artist.artist_name}</p><p className="mt-1 text-xs leading-6 text-muted">{addressLine || 'Pickup address not saved'}</p><p className="mt-1 text-xs text-muted">{artist.pickup_contact_name} · {artist.pickup_phone}</p><p className="mt-1 text-[10px] text-muted">Shiprocket location: {artist.pickup_location || 'Primary'}</p></div>
+            <div className="rounded-2xl bg-[#F3ECE1] p-4"><div className="flex items-center gap-2 font-semibold"><Landmark size={16} className="text-clay"/> Verified bank / UPI</div>{payoutAccount?.verified_at ? <><p className="mt-2 text-sm font-semibold">{payoutAccount.bank_name} · {payoutAccount.branch_name}</p><p className="mt-1 text-xs leading-6 text-muted">{payoutAccount.account_holder_name} · {payoutAccount.bank_account_number_masked} · {payoutAccount.ifsc_code}</p><p className="mt-1 text-xs text-muted">{payoutAccount.upi_id ? `UPI: ${payoutAccount.upi_id}` : 'No UPI ID saved'}</p></> : <p className="mt-2 text-xs text-muted">Payout details not verified.</p>}</div>
           </div> : <div className="mt-5 grid gap-5">
             <form onSubmit={saveProfile} className="rounded-2xl border border-[#eee6db] p-5">
               <h3 className="font-display text-2xl">Creator profile &amp; studio pickup</h3>
