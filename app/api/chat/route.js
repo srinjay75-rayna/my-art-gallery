@@ -11,7 +11,7 @@ import {
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const GEMINI_MODEL = 'gemini-2.5-flash';
+const GEMINI_MODEL = ''gemini-3-flash-preview', 'gemini-2.5-flash-lite'';
 const MAX_MESSAGES = 16;
 const MAX_MESSAGE_CHARS = 1800;
 const MAX_TOTAL_MESSAGE_CHARS = 12000;
