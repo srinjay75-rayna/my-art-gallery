@@ -20,7 +20,7 @@ export default function EditorialFooter() {
         <div>
           <p className="eyebrow">Explore Artiste</p>
           <nav className="mt-5 grid gap-3 text-sm text-[#62584e]">
-            <Link href="/#gallery" className="w-fit transition hover:text-[#B85D3B]">Gallery <ArrowUpRight className="ml-1 inline" size={12} /></Link>
+            <Link href="/#collection" className="w-fit transition hover:text-[#B85D3B]">Gallery <ArrowUpRight className="ml-1 inline" size={12} /></Link>
             <Link href="/artists" className="w-fit transition hover:text-[#B85D3B]">Our Artists</Link>
             <Link href="/photography" className="w-fit transition hover:text-[#B85D3B]">Fine-Art Photography</Link>
             <Link href="/#journal" className="w-fit transition hover:text-[#B85D3B]">Journal · Indian Art &amp; Decor</Link>

@@ -135,7 +135,7 @@ export default function SiteNavbar() {
   }
 
   const navLinks = [
-    { label: 'Collection', href: '/#gallery' },
+    { label: 'Collection', href: '/#collection' },
     { label: 'Our Artists', href: '/artists' },
     { label: 'Journal', href: '/#journal' },
     { label: 'Sell Art', href: '/artist' },

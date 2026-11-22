@@ -281,7 +281,7 @@ export default function ArtistPage() {
   if (authLoading) return <main className="paper-grain min-h-screen px-5 py-16"><div className="mx-auto max-w-3xl rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] p-10 text-center"><ShieldCheck size={28} className="mx-auto text-clay"/><h1 className="mt-3 font-display text-2xl">Securing your Artist Portal…</h1></div></main>;
 
   return <main className="paper-grain min-h-screen px-5 py-8 md:px-10"><div className="mx-auto max-w-6xl">
-    <div className="mb-8 flex justify-end"><a href="/#gallery" className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-clay"><ArrowLeft size={14}/> Back to Collection</a></div>
+    <div className="mb-8 flex justify-end"><a href="/#collection" className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-clay"><ArrowLeft size={14}/> Back to Collection</a></div>
     <p className="eyebrow flex items-center gap-2"><Palette size={14}/> For Artists — Painters &amp; Photographers</p>
     <div className="mt-3 flex flex-wrap items-center gap-4">
       {session && <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full border-4 border-[#e9d8c4] bg-[#f1e8dc] shadow-soft">{avatarUrl ? <img src={avatarUrl} alt={`${artist?.artist_name || 'Artist'} profile`} className="h-full w-full rounded-full object-cover"/> : <span className="font-display text-3xl text-clay">A</span>}</div>}

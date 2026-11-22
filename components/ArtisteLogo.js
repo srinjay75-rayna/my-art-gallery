@@ -29,7 +29,10 @@ export default function ArtisteLogo({ size = 46, subtitle = 'The Indian art hous
     <Link href={href} className={`inline-flex items-center gap-3 ${className}`} aria-label="Artiste home">
       <ArtisteLogoMark size={size} />
       <span className="min-w-0">
-        <b className="block font-serif text-[25px] leading-none tracking-[-.035em] text-[#263832]">Artiste</b>
+        <span className="flex items-baseline gap-2">
+          <b className="block font-serif text-[25px] leading-none tracking-[-.035em] text-[#263832]">Artiste</b>
+          <span className="font-serif text-[9px] italic lowercase leading-none tracking-[.015em] text-[#9A7656]">my art gallery</span>
+        </span>
         {subtitle && <small className="mt-1 block text-[8px] uppercase tracking-[.25em] text-[#827666]">{subtitle}</small>}
       </span>
     </Link>
