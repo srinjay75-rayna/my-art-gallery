@@ -80,7 +80,7 @@ export default function ArtistOnboardingPage() {
         const a = dataResult.artist || null;
         setArtist(a);
         setArtistName(a?.artist_name || metadata.artist_name || metadata.full_name || '');
-        setCreatorRole(a?.creator_role === 'Photographer' ? 'Photographer' : 'Painter');
+        setCreatorRole((a?.creator_role || metadata.creator_role) === 'Photographer' ? 'Photographer' : 'Painter');
         setBio(a?.bio || '');
         setPickupLocation(a?.pickup_location || 'Primary');
         setAddress({

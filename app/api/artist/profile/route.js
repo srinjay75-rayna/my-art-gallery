@@ -16,6 +16,21 @@ export async function GET(request) {
     const { data: foundArtist, error } = await supabase.from('artists').select('*').eq('user_id', user.id).maybeSingle();
     if (error) throw error;
     let artist = foundArtist || null;
+    if (!artist) {
+      const metadata = user.user_metadata || {};
+      const creatorRole = metadata.creator_role === 'Photographer' ? 'Photographer' : 'Painter';
+      const draftName = String(metadata.artist_name || metadata.full_name || 'Artist').replace(/[\u0000-\u001F\u007F]/g, ' ').trim().slice(0, 100) || 'Artist';
+      const { data: draft, error: draftError } = await supabase.from('artists').upsert({
+        user_id: user.id,
+        email: String(user.email || '').toLowerCase(),
+        artist_name: draftName,
+        creator_role: creatorRole,
+        is_approved: false,
+        is_suspended: false,
+      }, { onConflict: 'user_id' }).select('*').single();
+      if (draftError) throw draftError;
+      artist = draft;
+    }
     let ledger = [];
     let payoutAccount = null;
     if (artist) {
@@ -108,6 +123,12 @@ export async function POST(request) {
       if (activateError) throw activateError;
       data = activated;
     }
+    try {
+      const { error: metadataError } = await supabase.auth.admin.updateUserById(user.id, {
+        user_metadata: { ...(user.user_metadata || {}), account_type: 'artist', artist_name: artistName, creator_role: creatorRole, brand: 'Artiste' },
+      });
+      if (metadataError) console.error('Could not sync Artist role to Auth metadata:', metadataError.message);
+    } catch (metadataError) { console.error('Could not sync Artist role to Auth metadata:', metadataError?.message || metadataError); }
     const { error: attributionError } = await supabase.from('paintings').update({
       artist_name: artistName,
       avatar_url: profilePhotoUrl,

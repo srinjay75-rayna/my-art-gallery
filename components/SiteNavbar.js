@@ -136,7 +136,7 @@ export default function SiteNavbar() {
 
   const navLinks = [
     { label: 'Collection', href: '/#gallery' },
-    { label: 'Creators', href: '/artists' },
+    { label: 'Our Artists', href: '/artists' },
     { label: 'Journal', href: '/#journal' },
     { label: 'Sell Art', href: '/artist' },
   ];
@@ -186,7 +186,7 @@ export default function SiteNavbar() {
                     <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#C69C6D] bg-[#F3ECE1]">
                       {identity.avatar ? <img src={identity.avatar} alt="" className="h-full w-full object-cover"/> : <span className="font-serif text-sm font-semibold">{initials(identity.name)}</span>}
                     </span>
-                    <span className="min-w-0"><b className="block truncate text-sm text-[#263832]">{identity.name}</b><small className="mt-1 block text-[9px] uppercase tracking-[.15em] text-[#8A7864]">{identity.kind === 'creator' ? (identity.creatorRole === 'Photographer' ? 'Photographer · Photography Studio' : 'Artist · Artist Studio') : 'Customer account'}</small></span>
+                    <span className="min-w-0"><b className="block truncate text-sm text-[#263832]">{identity.name}</b><small className="mt-1 block text-[9px] uppercase tracking-[.15em] text-[#8A7864]">{identity.kind === 'creator' ? (identity.creatorRole === 'Photographer' ? 'Photographer' : 'Painter') : 'Customer account'}</small></span>
                   </div>
                   <div className="py-1">
                     {(identity.kind === 'creator' ? creatorLinks : customerLinks).map(({ label, href, icon: Icon }) => (

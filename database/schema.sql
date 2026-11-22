@@ -46,6 +46,7 @@ create table if not exists public.artists (
   state text not null default '',
   profile_photo_url text not null default '',
   avatar_url text not null default '',
+  creator_role text not null default 'Painter' check (creator_role in ('Painter', 'Photographer')),
   pickup_address text not null default '',
   pickup_contact_name text not null default '',
   pickup_phone text not null default '',
@@ -66,6 +67,15 @@ alter table public.artists add column if not exists city text not null default '
 alter table public.artists add column if not exists state text not null default '';
 alter table public.artists add column if not exists profile_photo_url text not null default '';
 alter table public.artists add column if not exists avatar_url text not null default '';
+alter table public.artists add column if not exists creator_role text;
+update public.artists set creator_role = 'Painter' where creator_role is null or creator_role not in ('Painter', 'Photographer');
+alter table public.artists alter column creator_role set default 'Painter';
+alter table public.artists alter column creator_role set not null;
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'artists_creator_role_check') then
+    alter table public.artists add constraint artists_creator_role_check check (creator_role in ('Painter', 'Photographer'));
+  end if;
+end $$;
 alter table public.artists add column if not exists pickup_address text not null default '';
 alter table public.artists add column if not exists pickup_contact_name text not null default '';
 alter table public.artists add column if not exists pickup_phone text not null default '';
@@ -98,6 +108,9 @@ create table if not exists public.paintings (
   height_cm numeric(9,2) not null check (height_cm > 0),
   image_url text not null,
   is_sold boolean not null default false,
+  stock_quantity integer not null default 1 check (stock_quantity >= 0),
+  edition_details text not null default '',
+  print_details text not null default '',
   artist_id uuid references public.artists(id) on delete set null,
   artist_name text not null default 'Artiste Studio',
   avatar_url text not null default '',
@@ -118,6 +131,23 @@ alter table public.paintings add column if not exists is_approved boolean not nu
 alter table public.paintings add column if not exists pickup_pincode text;
 alter table public.paintings add column if not exists pickup_location text not null default 'Primary';
 alter table public.paintings add column if not exists created_at timestamptz not null default now();
+-- V9 inventory migration is placed before the payment RPC definitions so even
+-- older databases have stock columns before any payment function is executed.
+alter table public.paintings add column if not exists stock_quantity integer;
+update public.paintings set stock_quantity = case when is_sold then 0 else 1 end where stock_quantity is null;
+alter table public.paintings alter column stock_quantity set default 1;
+alter table public.paintings alter column stock_quantity set not null;
+alter table public.paintings add column if not exists edition_details text not null default '';
+alter table public.paintings add column if not exists print_details text not null default '';
+-- Preserve any legacy SOLD OUT marker during migration; stock quantity takes
+-- over as the source of truth after the initial backfill.
+update public.paintings set stock_quantity = 0 where is_sold = true and stock_quantity > 0;
+update public.paintings set is_sold = (stock_quantity <= 0);
+do $$ begin
+  if not exists (select 1 from pg_constraint where conname = 'paintings_stock_quantity_nonnegative') then
+    alter table public.paintings add constraint paintings_stock_quantity_nonnegative check (stock_quantity >= 0);
+  end if;
+end $$;
 
 -- Artist avatars are safe public attribution fields; studio pickup and payout
 -- information remains in the private Artist / dispatch tables.
@@ -301,6 +331,8 @@ create table if not exists public.artist_payouts (
   gross_amount numeric(12,2) not null default 0,
   platform_fee numeric(12,2) not null default 0,
   artist_payout numeric(12,2) not null default 0,
+  creator_role text not null default 'Painter',
+  commission_rate numeric(5,4) not null default 0.0200,
   payout_status text not null default 'Pending' check (payout_status in ('Pending', 'Paid')),
   paid_at timestamptz,
   created_at timestamptz not null default now(),
@@ -313,6 +345,8 @@ alter table public.artist_payouts add column if not exists artist_name text not 
 alter table public.artist_payouts add column if not exists gross_amount numeric(12,2) not null default 0;
 alter table public.artist_payouts add column if not exists platform_fee numeric(12,2) not null default 0;
 alter table public.artist_payouts add column if not exists artist_payout numeric(12,2) not null default 0;
+alter table public.artist_payouts add column if not exists creator_role text not null default 'Painter';
+alter table public.artist_payouts add column if not exists commission_rate numeric(5,4) not null default 0.0200;
 alter table public.artist_payouts add column if not exists payout_status text not null default 'Pending';
 alter table public.artist_payouts add column if not exists paid_at timestamptz;
 alter table public.artist_payouts add column if not exists created_at timestamptz not null default now();
@@ -913,6 +947,9 @@ alter table public.paintings alter column stock_quantity set default 1;
 alter table public.paintings alter column stock_quantity set not null;
 alter table public.paintings add column if not exists edition_details text not null default '';
 alter table public.paintings add column if not exists print_details text not null default '';
+-- Preserve any legacy SOLD OUT marker during migration; stock quantity takes
+-- over as the source of truth after the initial backfill.
+update public.paintings set stock_quantity = 0 where is_sold = true and stock_quantity > 0;
 update public.paintings set is_sold = (stock_quantity <= 0);
 do $$ begin
   if not exists (select 1 from pg_constraint where conname = 'paintings_stock_quantity_nonnegative') then
@@ -1021,3 +1058,76 @@ $$;
 
 revoke all on function public.confirm_artiste_payment(uuid, text) from public, anon, authenticated;
 grant execute on function public.confirm_artiste_payment(uuid, text) to service_role;
+
+-- =============================================================================
+-- V9: atomic, shared API rate-limits for multi-instance/serverless deployments.
+-- The identifier stored here is an HMAC of scope + client address, not a raw IP.
+-- =============================================================================
+create table if not exists public.api_rate_limits (
+  key_hash text primary key,
+  window_started_at timestamptz not null default now(),
+  request_count integer not null default 0 check (request_count >= 0),
+  updated_at timestamptz not null default now()
+);
+alter table public.api_rate_limits add column if not exists key_hash text;
+alter table public.api_rate_limits add column if not exists window_started_at timestamptz not null default now();
+alter table public.api_rate_limits add column if not exists request_count integer not null default 0;
+alter table public.api_rate_limits add column if not exists updated_at timestamptz not null default now();
+create index if not exists api_rate_limits_updated_idx on public.api_rate_limits(updated_at);
+
+alter table public.api_rate_limits enable row level security;
+drop policy if exists api_rate_limits_no_browser_access on public.api_rate_limits;
+revoke all privileges on table public.api_rate_limits from public, anon, authenticated;
+grant all privileges on table public.api_rate_limits to service_role;
+
+create or replace function public.consume_api_rate_limit(
+  p_key_hash text,
+  p_limit integer,
+  p_window_seconds integer
+)
+returns table(allowed boolean, retry_after_seconds integer, remaining integer)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_started_at timestamptz;
+  v_count integer;
+  v_now timestamptz := clock_timestamp();
+  v_limit integer := greatest(1, least(coalesce(p_limit, 1), 10000));
+  v_window integer := greatest(1, least(coalesce(p_window_seconds, 60), 86400));
+begin
+  if p_key_hash is null or length(p_key_hash) <> 64 or p_key_hash !~ '^[0-9a-f]{64}$' then
+    raise exception 'Invalid rate-limit key.';
+  end if;
+
+  insert into public.api_rate_limits as existing (key_hash, window_started_at, request_count, updated_at)
+  values (p_key_hash, v_now, 1, v_now)
+  on conflict (key_hash) do update
+  set window_started_at = case
+        when existing.window_started_at <= v_now - make_interval(secs => v_window) then v_now
+        else existing.window_started_at
+      end,
+      request_count = case
+        when existing.window_started_at <= v_now - make_interval(secs => v_window) then 1
+        else existing.request_count + 1
+      end,
+      updated_at = v_now
+  returning existing.window_started_at, existing.request_count
+  into v_started_at, v_count;
+
+  -- Keep this table bounded without a scheduled job.
+  if random() < 0.002 then
+    delete from public.api_rate_limits where updated_at < v_now - interval '2 days';
+  end if;
+
+  return query select
+    v_count <= v_limit,
+    greatest(1, ceil(extract(epoch from (v_started_at + make_interval(secs => v_window) - v_now)))::integer),
+    greatest(0, v_limit - v_count);
+end;
+$$;
+
+revoke all on function public.consume_api_rate_limit(text, integer, integer) from public, anon, authenticated;
+grant execute on function public.consume_api_rate_limit(text, integer, integer) to service_role;
+

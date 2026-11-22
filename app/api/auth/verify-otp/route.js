@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { requireServiceRole } from '@/lib/supabase';
+import { enforceRateLimit, rateLimitJsonResponse, readJsonBody } from '@/lib/request-guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -55,12 +56,14 @@ function safeMessage(error) {
 
 export async function POST(request) {
   try {
-    const body = await request.json();
+    const rate = await enforceRateLimit(request, { scope: 'otp-verify', limit: 40, windowSeconds: 15 * 60 });
+    if (!rate.allowed) return rateLimitJsonResponse(NextResponse, rate, 'Too many verification attempts from this connection. Please wait before trying again.');
+    const body = await readJsonBody(request, 8 * 1024);
     const email = String(body.email || '').trim().toLowerCase();
     const accountType = String(body.accountType || '').trim().toLowerCase();
     const purpose = String(body.purpose || '').trim().toLowerCase();
     const code = String(body.otp || '').trim();
-    const password = String(body.password || '');
+    const password = String(body.password || '').slice(0, 256);
 
     if (!EMAIL_RE.test(email) || email.length > 254) return NextResponse.json({ error: 'Enter a valid email address.' }, { status: 400 });
     if (!allowedAccountTypes.has(accountType) || !allowedPurposes.has(purpose)) return NextResponse.json({ error: 'Invalid verification request.' }, { status: 400 });
@@ -85,8 +88,12 @@ export async function POST(request) {
     let user;
     let sessionLink;
     if (purpose === 'signup') {
-      const metadata = result.payload && typeof result.payload === 'object' ? result.payload : {};
-      if (metadata.account_type !== accountType) return NextResponse.json({ error: 'The verification request does not match this portal.' }, { status: 400 });
+      const payload = result.payload && typeof result.payload === 'object' ? result.payload : {};
+      if (payload.account_type !== accountType) return NextResponse.json({ error: 'The verification request does not match this portal.' }, { status: 400 });
+      const creatorRole = payload.creator_role === 'Photographer' ? 'Photographer' : 'Painter';
+      const metadata = accountType === 'artist'
+        ? { ...payload, account_type: 'artist', creator_role: creatorRole, brand: 'Artiste' }
+        : { ...payload, account_type: 'customer', brand: 'Artiste' };
       const createResult = await supabase.auth.admin.createUser({
         email,
         password,
@@ -97,6 +104,30 @@ export async function POST(request) {
         throw createResult.error || new Error('Could not create your Artiste account.');
       }
       user = createResult.data.user;
+      if (accountType === 'artist') {
+        // Persist the chosen discipline immediately after OTP verification,
+        // before the first dashboard render. Auth metadata remains a durable
+        // recovery source if the public profile insert experiences a transient DB failure.
+        const { error: draftError } = await supabase.from('artists').upsert({
+          user_id: user.id,
+          email,
+          artist_name: String(metadata.artist_name || metadata.full_name || 'Artist').slice(0, 100),
+          creator_role: creatorRole,
+          bio: '',
+          city: '',
+          state: '',
+          pickup_address: '',
+          pickup_contact_name: String(metadata.artist_name || metadata.full_name || 'Artist').slice(0, 100),
+          pickup_phone: String(metadata.phone || ''),
+          pickup_landmark: '',
+          pickup_locality: '',
+          pickup_pincode: '',
+          pickup_location: 'Primary',
+          is_approved: false,
+          is_suspended: false,
+        }, { onConflict: 'user_id' });
+        if (draftError) console.error('Artiste draft Artist profile will be recreated on first profile load:', draftError.message);
+      }
     } else {
       user = await findExistingAuthUserByEmail(supabase, email);
       if (!user) {
@@ -121,8 +152,18 @@ export async function POST(request) {
         return NextResponse.json({ error: `This email belongs to the ${actualType === 'artist' ? 'Artist' : 'Customer'} portal.` }, { status: 403 });
       }
       const authUpdate = {};
-      if (!user.user_metadata?.account_type) {
-        authUpdate.user_metadata = { ...(user.user_metadata || {}), account_type: accountType, brand: 'Artiste' };
+      let artistRecord = null;
+      if (accountType === 'artist') {
+        const { data: roleRecord, error: roleLookupError } = await supabase.from('artists').select('id,creator_role').eq('user_id', user.id).maybeSingle();
+        if (roleLookupError) throw roleLookupError;
+        artistRecord = roleRecord;
+      }
+      const nextMetadata = { ...(user.user_metadata || {}), account_type: accountType, brand: 'Artiste' };
+      if (accountType === 'artist' && !['Painter', 'Photographer'].includes(nextMetadata.creator_role)) {
+        nextMetadata.creator_role = artistRecord?.creator_role === 'Photographer' ? 'Photographer' : 'Painter';
+      }
+      if (!user.user_metadata?.account_type || (accountType === 'artist' && !user.user_metadata?.creator_role)) {
+        authUpdate.user_metadata = nextMetadata;
       }
       // The independently verified Artiste OTP proves inbox access, so it can
       // also confirm legacy Auth users whose Supabase email was still pending.
@@ -171,6 +212,6 @@ export async function POST(request) {
     });
   } catch (error) {
     console.error('Artiste verify OTP error:', error?.message || error);
-    return NextResponse.json({ error: safeMessage(error) }, { status: 400 });
+    return NextResponse.json({ error: safeMessage(error) }, { status: Number(error?.status) || 400 });
   }
 }

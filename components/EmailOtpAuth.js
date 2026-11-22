@@ -27,6 +27,7 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [creatorRole, setCreatorRole] = useState('Painter');
   const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
@@ -70,6 +71,7 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
           purpose,
           name: name.trim(),
           phone: purpose === 'signup' ? `+91${phone}` : undefined,
+          creatorRole: purpose === 'signup' && isArtist ? creatorRole : undefined,
         }),
       });
       const result = await response.json().catch(() => ({}));
@@ -79,7 +81,7 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
       setOtpSent(true);
       setOtp('');
       setNotice(`A 6-digit verification code has been sent to ${normalizedEmail}. Enter it below without leaving this page.`);
-      onSent?.({ mode: purpose, email: normalizedEmail });
+      onSent?.({ mode: purpose, email: normalizedEmail, creatorRole: isArtist ? creatorRole : undefined });
     } catch (err) {
       setError(err.message || 'Could not send your verification code. Please try again.');
     } finally {
@@ -213,6 +215,18 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
                 {isArtist ? 'Artist / Studio Name' : 'Full Name'}
                 <input className="field mt-1" required minLength={2} maxLength={100} autoComplete="name" disabled={otpSent || busy} value={name} onChange={(e) => setName(e.target.value)} placeholder={isArtist ? 'Your Artist or studio name' : 'Your full name'} />
               </label>
+              {isArtist && (
+                <label className="label">
+                  Choose Your Discipline
+                  <select className="field mt-1" value={creatorRole} onChange={(e) => setCreatorRole(e.target.value)} disabled={otpSent || busy}>
+                    <option value="Painter">Painter — 2% Platform Fee · You Keep 98%</option>
+                    <option value="Photographer">Photographer — 5% Platform Fee · You Keep 95%</option>
+                  </select>
+                  <span className="mt-2 block text-[10px] font-normal normal-case tracking-normal text-muted">
+                    This choice sets up your Artist Studio and default listing category. You can update your discipline later in My Profile.
+                  </span>
+                </label>
+              )}
               <label className="label">
                 Mobile Number <span className="normal-case tracking-normal text-clay">+91</span>
                 <div className="mt-1 flex items-center rounded-xl border border-[#D9C6A6] bg-[#FAF6F0] px-3">

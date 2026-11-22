@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import nodemailer from 'nodemailer';
 import { requireServiceRole } from '@/lib/supabase';
+import { cleanText, enforceRateLimit, rateLimitJsonResponse, readJsonBody } from '@/lib/request-guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -51,12 +52,15 @@ function createTransport() {
 export async function POST(request) {
   let otpRowId = null;
   try {
-    const body = await request.json();
+    const rate = await enforceRateLimit(request, { scope: 'otp-send', limit: 20, windowSeconds: 60 * 60 });
+    if (!rate.allowed) return rateLimitJsonResponse(NextResponse, rate, 'Too many verification requests from this connection. Please try again later.');
+    const body = await readJsonBody(request, 12 * 1024);
     const email = String(body.email || '').trim().toLowerCase();
     const accountType = String(body.accountType || '').trim().toLowerCase();
     const purpose = String(body.purpose || '').trim().toLowerCase();
-    const name = String(body.name || '').trim();
+    const name = cleanText(body.name, 100);
     const phoneDigits = String(body.phone || '').replace(/\D/g, '').replace(/^91/, '').slice(-10);
+    const creatorRole = accountType === 'artist' && body.creatorRole === 'Photographer' ? 'Photographer' : 'Painter';
 
     if (!EMAIL_RE.test(email) || email.length > 254) return NextResponse.json({ error: 'Enter a valid email address.' }, { status: 400 });
     if (!allowedAccountTypes.has(accountType) || !allowedPurposes.has(purpose)) return NextResponse.json({ error: 'Invalid verification request.' }, { status: 400 });
@@ -64,6 +68,13 @@ export async function POST(request) {
       if (name.length < 2 || name.length > 100) return NextResponse.json({ error: accountType === 'artist' ? 'Enter your Artist or studio name.' : 'Enter your full name.' }, { status: 400 });
       if (!/^\d{10}$/.test(phoneDigits)) return NextResponse.json({ error: 'Enter a valid 10-digit Indian mobile number.' }, { status: 400 });
     }
+
+    // These identifier-only limits protect an email even when requests arrive
+    // concurrently from several IP addresses / devices.
+    const emailBurst = await enforceRateLimit(request, { scope: 'otp-send-email-minute', identifier: email, limit: 1, windowSeconds: 60 });
+    if (!emailBurst.allowed) return rateLimitJsonResponse(NextResponse, emailBurst, 'Please wait one minute before requesting another code.');
+    const emailHourly = await enforceRateLimit(request, { scope: 'otp-send-email-hour', identifier: email, limit: 5, windowSeconds: 60 * 60 });
+    if (!emailHourly.allowed) return rateLimitJsonResponse(NextResponse, emailHourly, 'Too many codes have been requested for this email. Please try again later.');
 
     const supabase = requireServiceRole();
     const now = Date.now();
@@ -100,7 +111,7 @@ export async function POST(request) {
     const expiresAt = new Date(now + 10 * 60 * 1000).toISOString();
     const metadata = purpose === 'signup'
       ? accountType === 'artist'
-        ? { account_type: 'artist', artist_name: name, full_name: name, phone: `+91${phoneDigits}`, brand: 'Artiste' }
+        ? { account_type: 'artist', artist_name: name, full_name: name, phone: `+91${phoneDigits}`, creator_role: creatorRole, brand: 'Artiste' }
         : { account_type: 'customer', full_name: name, phone: `+91${phoneDigits}`, brand: 'Artiste' }
       : {};
 
@@ -138,6 +149,6 @@ export async function POST(request) {
     const message = error?.message?.includes('email_otps') || error?.code === '42P01'
       ? 'The OTP database table is not ready. Run the updated database/schema.sql in Supabase.'
       : error.message || 'Could not send your verification code.';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: Number(error?.status) || 500 });
   }
 }

@@ -1,6 +1,6 @@
-# Artiste v8 — Original Paintings & Fine-Art Photography Marketplace
+# Artiste v9 — Original Paintings & Fine-Art Photography Marketplace
 
-Artiste v8 upgrades the existing Next.js App Router + JavaScript + Tailwind + Supabase + Shiprocket + Razorpay project while retaining the Artiste brand, A monogram, warm editorial gallery styling, existing API integrations, and the additive v3 database migration.
+Artiste v9 upgrades the existing Next.js App Router + JavaScript + Tailwind + Supabase + Shiprocket + Razorpay project while retaining the Artiste brand, botanical crest, warm museum-house gallery styling, all established commerce integrations, and additive idempotent database migrations.
 
 
 ## Version 7 — creator showcase & fine-art photography
@@ -253,3 +253,22 @@ The local economy / studio pickup choices do not incur a paid API subscription. 
 - Added the Artiste soul / human-connection tagline to the homepage hero, Our Story, footer, and invoice footer.
 
 No database migration is required for these Version 6 changes. The public Artist pages use the existing `artists` and `paintings` tables and their existing approval fields.
+
+
+## Version 9 — role-at-sign-up, weekly Journal and multi-user hardening
+
+- Artist is the shared public identity. New Artist sign-ups choose **Painter** (2% platform fee / 98% payout) or **Photographer** (5% platform fee / 95% payout) before the OTP is sent. The selected role is stored in the one-time OTP metadata, persisted to Auth user metadata at verification, and upserted into a draft Artist profile before the first dashboard load. The profile endpoint can self-heal a missing draft record from Auth metadata.
+- Creator Studio opens with the selected discipline, its private commission banner and a matching default listing category. The role remains editable in the signed-in profile. Public directory and portfolio badges show Painter or Photographer, while the shared navigation and page identity remain **Our Artists / For Artists**.
+- Replaced the prior external-news Journal feed with six original Artiste editorial essays generated through Gemini `gemini-2.5-flash` using native `fetch`. The route uses Next.js weekly revalidation (`revalidate: 604800`), validates each story and returns six bundled, four-paragraph fallback essays if the key or model is unavailable. Articles open in an on-site reader and their collector buttons filter the artwork gallery.
+- Added shared, database-backed atomic rate limits for OTP sending, OTP verification, the public Concierge and authenticated Shiprocket quote requests. Request bodies are size-limited and validated as JSON objects; user-facing fields are sanitized. Production fails closed when the rate-limit migration / database RPC is unavailable.
+- Supabase read-only `GET` / `HEAD` requests retry transient network and gateway failures up to three attempts. Mutations and RPC `POST` requests are deliberately never replayed.
+- Shiprocket rate lookup now rejects artworks with zero stock. Paid-order confirmation locks inventory rows and atomically decrements `stock_quantity` without allowing a negative balance; an already-paid order cannot decrement stock twice.
+- Added backward-compatible projections for optional photography / stock fields on public Artist and homepage views. Database migrations are additive and idempotent.
+
+### V9 deployment checklist
+
+1. Run the complete `database/schema.sql` in the Supabase SQL Editor before deploying. It includes role and stock migrations, public Artist read policy, payout fields, OTP/payment functions and the shared rate-limit table / RPC. Run it as a project owner so the grants and `SECURITY DEFINER` function are installed correctly.
+2. Configure `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, SMTP credentials, `OTP_HASH_SECRET` (recommended) and the existing Shiprocket, Razorpay and `ADMIN_PASSWORD` values from `.env.example`.
+3. Set `GEMINI_API_KEY` on the server to enable Gemini Concierge and the weekly Journal. The Journal's six curated fallback stories work without the key. No additional npm packages or paid infrastructure are introduced by V9; Google API free-tier availability and request quotas are controlled by Google's account and service terms.
+4. Keep `SUPABASE_SERVICE_ROLE_KEY`, `ADMIN_PASSWORD`, `OTP_HASH_SECRET`, Shiprocket / Razorpay secrets and `GEMINI_API_KEY` server-only. Never add a `NEXT_PUBLIC_` prefix to them.
+5. Run `npm install` and `npm run build` in the deployment environment, then test OTP sign-up / login, both creator roles, live courier quotes, a paid test order, stock decrement, invoice access and the private Studio Vault before accepting customers.

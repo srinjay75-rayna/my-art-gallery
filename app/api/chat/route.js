@@ -1,14 +1,13 @@
 import { NextResponse } from 'next/server';
 import siteConfig from '@/lib/siteConfig';
 import { getPublicServerSupabaseClient } from '@/lib/supabase';
+import { cleanText, enforceRateLimit, rateLimitJsonResponse, readJsonBody } from '@/lib/request-guard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const MAX_MESSAGES = 12;
 const MAX_MESSAGE_CHARS = 1800;
-const rateWindow = 60_000;
-const rateLimit = new Map();
 
 function fallbackAnswer(message, history = []) {
   const question = String(message || '').toLowerCase();
@@ -53,29 +52,16 @@ async function getLiveGalleryContext() {
   }
 }
 
-function limited(ip) {
-  const now = Date.now();
-  const entry = rateLimit.get(ip);
-  if (!entry || now - entry.start > rateWindow) {
-    rateLimit.set(ip, { start: now, count: 1 });
-    if (rateLimit.size > 5000) {
-      for (const [key, value] of rateLimit) if (now - value.start > rateWindow) rateLimit.delete(key);
-    }
-    return false;
-  }
-  entry.count += 1;
-  return entry.count > 18;
-}
 
 export async function POST(request) {
   try {
-    const ip = (request.headers.get('x-forwarded-for') || 'unknown').split(',')[0].trim().slice(0, 80);
-    if (limited(ip)) return NextResponse.json({ error: 'Please pause for a moment before asking another question.' }, { status: 429 });
-    const body = await request.json();
+    const rate = await enforceRateLimit(request, { scope: 'concierge-chat', limit: 18, windowSeconds: 60 });
+    if (!rate.allowed) return rateLimitJsonResponse(NextResponse, rate, 'Please pause for a moment before asking another question.');
+    const body = await readJsonBody(request, 28 * 1024);
     const rawMessages = Array.isArray(body.messages) ? body.messages : [];
     const messages = rawMessages.slice(-MAX_MESSAGES).map((entry) => ({
       role: entry?.from === 'bot' || entry?.role === 'model' ? 'model' : 'user',
-      text: String(entry?.text ?? entry?.content ?? '').trim().slice(0, MAX_MESSAGE_CHARS),
+      text: cleanText(entry?.text ?? entry?.content ?? '', MAX_MESSAGE_CHARS),
     })).filter((entry) => entry.text);
     const latestUser = [...messages].reverse().find((entry) => entry.role === 'user');
     if (!latestUser?.text) return NextResponse.json({ error: 'Please enter a question.' }, { status: 400 });
@@ -84,7 +70,7 @@ export async function POST(request) {
     const apiKey = String(process.env.GEMINI_API_KEY || '').trim();
     if (!apiKey) return NextResponse.json({ reply: fallback, mode: 'fallback' });
 
-    const model = String(process.env.GEMINI_MODEL || 'gemini-3.8-flash').trim().replace(/[^a-zA-Z0-9._-]/g, '');
+    const model = String(process.env.GEMINI_MODEL || 'gemini-2.5-flash').trim().replace(/[^a-zA-Z0-9._-]/g, '');
     const galleryContext = await getLiveGalleryContext();
     const systemInstruction = `You are Artiste Concierge, the official customer and creator support assistant for Artiste, an Indian marketplace. Be warm, concise, practical and conversational. Ask one useful follow-up question when needed. Never invent order status, stock, a live courier quote, legal/tax advice, payment confirmation, refunds, delivery dates or policies. You cannot access a specific customer's order or live Shiprocket pricing; explain that actual Point-A to Point-B Shiprocket options and rates are fetched at checkout after the product and delivery PIN are known. Explain Artiste accurately: original paintings are the primary gallery; Fine-Art Photography is a curated secondary wing; creators use one /artist portal and choose Painter (displayed as Artist) or Photographer; role-specific commission and payout figures are confidential and must never be disclosed in this public chat; direct logged-in creators to the Creator Dashboard. Never disclose or link private owner-only routes, credentials or internal management paths. If asked publicly, explain only that role-specific statements are visible after sign-in; shipping is separate from artwork commission. Customer payments are processed through Razorpay. Paid orders receive a non-GST Bill of Supply / Retail Invoice accessible from My Orders. Creator listings can have stock quantity and are marked sold out only when stock reaches zero. Do not ask customers to disclose card numbers, OTPs, UPI PINs, passwords or bank credentials. For support escalation, give ${siteConfig.supportEmail}, ${siteConfig.phoneNumber}, WhatsApp +${siteConfig.whatsappNumber}. Company address: ${siteConfig.headOfficeAddress}. Business status: ${siteConfig.gstStatus}. Policy pages: /shipping-returns, /account, /artist, /photography. Use this live request-time public gallery snapshot for artwork titles, formats, listed prices and stock only; do not promise an item is still available because stock can change at checkout. If the snapshot is empty or unavailable, direct users to /#gallery or /photography rather than inventing works. Live gallery snapshot (JSON): ${JSON.stringify(galleryContext)}.`;
     const contents = messages.map((entry) => ({ role: entry.role, parts: [{ text: entry.text }] }));
@@ -107,7 +93,10 @@ export async function POST(request) {
     }
     return NextResponse.json({ reply: generated.slice(0, 3000), mode: 'gemini' });
   } catch (error) {
-    console.error('Concierge request failed:', error.message);
+    if (Number(error?.status) === 400 || Number(error?.status) === 413) {
+      return NextResponse.json({ error: error.message || 'Invalid chat request.' }, { status: Number(error.status) });
+    }
+    console.error('Concierge request failed:', error?.message || error);
     return NextResponse.json({ reply: 'I’m having trouble reaching the Concierge service right now. Please try again shortly, or contact Artiste Support using WhatsApp or email below.', mode: 'fallback' }, { status: 200 });
   }
 }

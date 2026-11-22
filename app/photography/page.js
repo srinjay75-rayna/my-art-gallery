@@ -23,13 +23,20 @@ export default async function PhotographyPage() {
     if (error) throw error;
     paintings = data || [];
 
-    const { data: artistData, error: artistError } = await supabase.from('artists')
+    let artistResult = await supabase.from('artists')
       .select('id,artist_name,avatar_url,city,state,bio,creator_role,is_approved,is_suspended')
       .eq('is_approved', true)
       .eq('is_suspended', false)
       .order('artist_name');
-    if (artistError) throw artistError;
-    artists = artistData || [];
+    if (artistResult.error && /creator_role|schema cache|does not exist/i.test(artistResult.error.message || '')) {
+      artistResult = await supabase.from('artists')
+        .select('id,artist_name,avatar_url,city,state,bio,is_approved,is_suspended')
+        .eq('is_approved', true)
+        .eq('is_suspended', false)
+        .order('artist_name');
+    }
+    if (artistResult.error) throw artistResult.error;
+    artists = (artistResult.data || []).map((artist) => ({ ...artist, creator_role: artist.creator_role === 'Photographer' ? 'Photographer' : 'Painter' }));
     const artistMap = new Map(artists.map((artist) => [artist.id, artist]));
     paintings = paintings.map((painting) => {
       const artist = artistMap.get(painting.artist_id);

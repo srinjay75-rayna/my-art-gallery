@@ -94,6 +94,8 @@ export default function ArtistPage() {
       const data = await api('/api/artist/profile');
       setArtist(data.artist || null);
       setLedger(data.ledger || []);
+      const defaultCategory = data.artist?.creator_role === 'Photographer' ? 'Photography' : 'Painting';
+      setForm((current) => current.title || current.medium || current.price ? current : { ...current, category: defaultCategory });
       const complete = Boolean(
         data.artist?.artist_name && data.artist?.bio && data.artist?.pickup_address &&
         data.artist?.pickup_phone && data.artist?.pickup_landmark && data.artist?.pickup_locality &&
@@ -185,6 +187,7 @@ export default function ArtistPage() {
       if (profilePhoto) data.append('photo', profilePhoto);
       const result = await api('/api/artist/profile', { method: 'POST', body: data });
       setArtist(result.artist);
+      setForm((current) => ({ ...current, category: result.artist?.creator_role === 'Photographer' ? 'Photography' : 'Painting' }));
       setProfilePhoto(null);
       setNotice(result.message);
       await load(false);
@@ -279,7 +282,7 @@ export default function ArtistPage() {
 
   return <main className="paper-grain min-h-screen px-5 py-8 md:px-10"><div className="mx-auto max-w-6xl">
     <div className="mb-8 flex justify-end"><a href="/#gallery" className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-clay"><ArrowLeft size={14}/> Back to Collection</a></div>
-    <p className="eyebrow flex items-center gap-2"><Palette size={14}/> For Creators — Painters &amp; Photographers</p>
+    <p className="eyebrow flex items-center gap-2"><Palette size={14}/> For Artists — Painters &amp; Photographers</p>
     <div className="mt-3 flex flex-wrap items-center gap-4">
       {session && <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full border-4 border-[#e9d8c4] bg-[#f1e8dc] shadow-soft">{avatarUrl ? <img src={avatarUrl} alt={`${artist?.artist_name || 'Artist'} profile`} className="h-full w-full rounded-full object-cover"/> : <span className="font-display text-3xl text-clay">A</span>}</div>}
       <div><h1 className="max-w-3xl font-display text-5xl leading-tight md:text-6xl">Your work deserves <em className="font-normal text-clay">its own room.</em></h1><p className="mt-3 max-w-2xl text-sm leading-7 text-muted">Create your Artist profile, publish original paintings or fine-art photographs, and manage your Artiste collection.</p></div>
@@ -295,7 +298,7 @@ export default function ArtistPage() {
 
         <div className="mt-7 grid items-start gap-7 lg:grid-cols-[.9fr_1.1fr]">
           <section className="rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] p-6 shadow-soft md:p-7">
-            <p className="eyebrow flex items-center gap-2"><Palette size={13}/> {artist?.creator_role === 'Photographer' ? 'Photography Studio' : 'Artist Studio'}</p>
+            <p className="eyebrow flex items-center gap-2"><Palette size={13}/> Artist Studio • {artist?.creator_role === 'Photographer' ? 'Photographer — 5% Platform Fee' : 'Painter — 2% Platform Fee'}</p>
             <h2 className="mt-2 font-display text-3xl">List an Artwork</h2>
             <p className="mt-2 text-xs leading-5 text-muted">Your verified {artist?.creator_role === 'Photographer' ? 'Photographer' : 'Artist'} studio can publish original paintings and fine-art photography directly to the Artiste gallery.</p>
             {isSuspended && <p className="mt-4 rounded-xl bg-red-50 p-3 text-xs text-red-800">Publishing is disabled while your account is suspended.</p>}
@@ -313,7 +316,7 @@ export default function ArtistPage() {
 
           <section className="min-w-0">
             <div className="rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] p-6 shadow-soft md:p-7">
-              <p className="eyebrow flex items-center gap-2"><Wallet size={13}/> {artist?.creator_role === 'Photographer' ? 'Photographer workspace' : 'Artist workspace'}</p>
+              <p className="eyebrow flex items-center gap-2"><Wallet size={13}/> Sales &amp; Payouts • {artist?.creator_role === 'Photographer' ? 'Photographer · 5% Fee / 95% Payout' : 'Painter · 2% Fee / 98% Payout'}</p>
               <h2 id="earnings" className="mt-2 scroll-mt-28 font-display text-3xl">My Works &amp; Earnings</h2>
               <div className="mt-5 grid gap-3">{artworks.map((painting) => <article key={painting.id} className="flex gap-3 rounded-2xl border border-[#D9C6A6] bg-[#F3ECE1] p-3">
                 <img src={painting.image_url} alt={painting.title} className="h-24 w-20 rounded-xl object-cover"/>
