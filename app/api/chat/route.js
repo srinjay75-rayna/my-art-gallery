@@ -139,7 +139,7 @@ async function requestGeminiModel({
       contents,
 
       generationConfig: {
-        maxOutputTokens: 260,
+        maxOutputTokens: 1024,
         temperature: 0.65,
       },
     }),
