@@ -12,22 +12,21 @@ export const maxDuration = 30;
 /* ------------------------------------------------------------------ */
 
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
-// Overall budget for every Gemini attempt combined. The first attempt gets a
-// shorter slice so there is always time left to fall back to another model.
-const GEMINI_TOTAL_TIMEOUT_MS = 15000;
-const GEMINI_FIRST_ATTEMPT_MS = 8000;
+// One 16-second budget covers both the primary Flash-Lite request and
+// the Flash fallback. Supabase lookups have their own independent timeout.
+const GEMINI_TOTAL_TIMEOUT_MS = 16000;
+const GEMINI_FIRST_ATTEMPT_MS = 10000;
 const GEMINI_MAX_OUTPUT_TOKENS = 1024;
 const DATABASE_TIMEOUT_MS = 4000;
 
+// Fixed, supported fallback order: Flash-Lite first, then Flash.
 const MODEL_CHAIN = [
-  ...new Set(
-    [
-      String(process.env.GEMINI_MODEL || '').trim(),
-      'gemini-2.5-flash-lite',
-      'gemini-3-flash-preview',
-      'gemini-2.5-flash',
-    ].filter(Boolean)
-  ),
+  // Keep the requested 2.5 pair first. Google restricts 2.5 access for
+  // newer projects, so this current free-tier-capable fallback protects
+  // Rayna when both legacy model IDs return an eligibility 404.
+  'gemini-2.5-flash-lite',
+  'gemini-2.5-flash',
+  'gemini-3.5-flash-lite',
 ];
 
 const MAX_MESSAGES = 16;
@@ -101,6 +100,7 @@ function isGoodbye(text) {
 function extractOrderReference(message) {
   const text = String(message || '');
   const patterns = [
+    { type: 'serial_bill', regex: /\bART-\d{4}-\d{5,}\b/i },
     { type: 'bill', regex: /\bBOS-AR-[A-Z0-9][A-Z0-9-]{4,}\b/i },
     { type: 'uuid', regex: /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i },
     { type: 'razorpay', regex: /\border_[A-Za-z0-9]{8,}\b/i },
@@ -231,14 +231,15 @@ const ORDER_SELECT_OPTIONS = [
 const ORDER_SCHEMA_ERROR = /bill_number|shiprocket_awb_code|shipment_status|schema cache|does not exist/i;
 
 async function findOrderRow(supabase, reference) {
-  // Bill numbers are issued as "BOS-AR-" + the order reference (see
-  // OrderDocument), so the order is found through merchant_order_ref and only
-  // then, if present, through a stored bill_number column.
+  // V13 uses exact serial ART-YYYY-NNNNN bill numbers. This legacy BOS-AR
+  // lookup remains only for invoices issued before the V13 migration.
   const strategies = [];
   if (reference.type === 'uuid') {
     strategies.push((query) => query.eq('id', reference.value));
   } else if (reference.type === 'razorpay') {
     strategies.push((query) => query.eq('razorpay_order_id', reference.value));
+  } else if (reference.type === 'serial_bill') {
+    strategies.push((query) => query.eq('bill_number', reference.value));
   } else if (reference.type === 'bill') {
     const derivedRef = reference.value.replace(/^BOS-AR-/i, '');
     strategies.push((query) => query.ilike('merchant_order_ref', escapeLikePattern(derivedRef)));
@@ -389,12 +390,12 @@ function fallbackAnswer(message, context, orderLookup) {
 /* Gemini                                                              */
 /* ------------------------------------------------------------------ */
 
-function buildSystemInstruction({ liveContext, orderReference, orderLookup, smallTalk }) {
-  const catalogueBlock = smallTalk
-    ? 'The visitor sent a simple greeting or small-talk message, so the live catalogue was deliberately left out. Reply warmly in one or two sentences, introduce yourself as Rayna if appropriate, and ask how you can help. Do NOT mention any artwork, artist, price or list.'
-    : liveContext.unavailable
-      ? 'The live catalogue is temporarily unavailable. Do not name or price any artwork or creator; invite the visitor to browse the Collection or try again shortly.'
-      : `Live available works (title, artist_name, price in INR, art_form, stock_quantity at request time): ${JSON.stringify(liveContext.works || [])}\nLive approved creators (artist_name, creator_role, city): ${JSON.stringify(liveContext.creators || [])}`;
+function buildSystemInstruction({ liveContext, orderReference, orderLookup }) {
+  // Always inject current public catalogue context. Small-talk instructions
+  // below prevent unrequested product lists without discarding website data.
+  const catalogueBlock = liveContext.unavailable
+    ? 'The live catalogue is temporarily unavailable. Do not name or price any artwork or creator; invite the visitor to browse the Collection or try again shortly.'
+    : `Live available works (title, artist_name, price in INR, art_form, stock_quantity at request time): ${JSON.stringify(liveContext.works || [])}\nLive approved creators (artist_name, creator_role, city): ${JSON.stringify(liveContext.creators || [])}`;
 
   const orderBlock = JSON.stringify({
     detectedReference: orderReference?.value || null,
@@ -417,7 +418,7 @@ STYLE
 
 ARTISTE FACTS
 - Artiste (The Indian Art House) was founded in 2026 in Kolkata, West Bengal, India. It connects independent Indian Painters and Fine-Art Photographers directly with collectors across India. Original Paintings are the primary gallery; Fine-Art Photography is a curated secondary wing at /photography.
-- Platform fee: Painters pay 2% (they keep 98%); Photographers pay 5% (they keep 95%). Painters and Photographers both use the Artist Portal at /artist; public creator profiles are at /artists.
+- Creator settlement: Painters receive 85% with a 15% Artiste platform fee; Photographers receive 90% with a 10% Artiste platform fee. These rates are private creator settlement details, not public customer pricing. Painters and Photographers both use the Artist Portal at /artist; public creator profiles are at /artists.
 - Delivery is by Shiprocket, with live rates calculated at checkout from the creator's pickup PIN to the customer's delivery PIN. Never invent a courier quote, delivery date or return promise; see /shipping-returns for policies.
 - Checkout payments are handled by Razorpay. After a paid order, customers find an official non-GST Bill of Supply in My Orders at /account.
 - Support: ${siteConfig.supportEmail}; phone ${siteConfig.phoneNumber}; WhatsApp +${siteConfig.whatsappNumber}. Head office: ${siteConfig.headOfficeAddress}. GST status: ${siteConfig.gstStatus}. Offer these only when human help is needed.
@@ -429,7 +430,7 @@ Recommend only listed works and quote their listed price and stock exactly. Neve
 ORDER TRACKING
 Order-reference scan: ${orderBlock}
 - Track an order only when a safeOrderSummary is present above. Then use only its painting_title, status, bill_number, courier_name, awb_code, shipping_status and order_date.
-- If the visitor wants to track an order but gave no reference, ask for one exact Order ID or Bill Number (for example BOS-AR-… or ORD-…). Never list, search or guess orders.
+- If the visitor wants to track an order but gave no reference, ask for one exact Order ID or Bill Number (for example ART-2026-00001, BOS-AR-… or ORD-…). Never list, search or guess orders.
 - If a reference was detected but matched is false and lookupUnavailable is false, say politely that you could not find it and ask them to double-check. If lookupUnavailable is true, say order lookup is temporarily unavailable. Never claim to have tracked an order without a summary.
 
 SECURITY
@@ -447,39 +448,63 @@ function tidyReply(text) {
     .slice(0, 1800);
 }
 
-function generationConfigFor(model, withThinking) {
-  const config = { maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS, temperature: 0.7, topP: 0.95 };
-  if (withThinking) {
-    if (/^gemini-3/.test(model)) config.thinkingConfig = { thinkingLevel: 'minimal' };
-    else if (/^gemini-2\.5/.test(model)) config.thinkingConfig = { thinkingBudget: 0 };
-  }
-  return config;
+function generationConfigFor() {
+  // Deliberately no thinkingConfig: keep Flash-Lite response latency low
+  // and use the requested 1,024-token output ceiling.
+  return {
+    maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
+    temperature: 0.7,
+    topP: 0.95,
+  };
 }
 
-async function requestModel({ apiKey, model, systemInstruction, contents, withThinking, timeoutMs }) {
-  const response = await fetch(`${GEMINI_BASE_URL}/${model}:generateContent`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: systemInstruction }] },
-      contents,
-      generationConfig: generationConfigFor(model, withThinking),
-    }),
-    cache: 'no-store',
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-  const result = await response.json().catch(() => ({}));
-  const text = (result?.candidates?.[0]?.content?.parts || [])
-    .filter((part) => part && !part.thought)
-    .map((part) => part.text || '')
-    .join('')
-    .trim();
-  return {
-    ok: response.ok,
-    status: response.status,
-    text,
-    errorMessage: result?.error?.message || result?.promptFeedback?.blockReason || '',
-  };
+async function requestModel({
+  apiKey,
+  model,
+  systemInstruction,
+  contents,
+  timeoutMs,
+}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(`${GEMINI_BASE_URL}/${model}:generateContent`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: systemInstruction }],
+        },
+        contents,
+        generationConfig: generationConfigFor(),
+      }),
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+
+    const result = await response.json().catch(() => ({}));
+    const text = (result?.candidates?.[0]?.content?.parts || [])
+      .filter((part) => part && !part.thought)
+      .map((part) => part.text || '')
+      .join('')
+      .trim();
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      text,
+      errorMessage:
+        result?.error?.message ||
+        result?.promptFeedback?.blockReason ||
+        '',
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function generateWithGemini({ apiKey, systemInstruction, contents }) {
@@ -487,30 +512,55 @@ async function generateWithGemini({ apiKey, systemInstruction, contents }) {
 
   for (let index = 0; index < MODEL_CHAIN.length; index += 1) {
     const model = MODEL_CHAIN[index];
-    let withThinking = true;
+    const remaining = deadline - Date.now();
 
-    for (let retry = 0; retry < 2; retry += 1) {
-      const remaining = deadline - Date.now();
-      if (remaining < 1500) return null;
-      const timeoutMs = index === 0 && retry === 0 ? Math.min(GEMINI_FIRST_ATTEMPT_MS, remaining) : remaining;
+    if (remaining <= 250) break;
 
-      try {
-        const attempt = await requestModel({ apiKey, model, systemInstruction, contents, withThinking, timeoutMs });
-        if (attempt.ok && attempt.text) return { text: tidyReply(attempt.text), model };
+    // Reserve part of the total window for the secondary model.
+    const timeoutMs = index === 0
+      ? Math.min(GEMINI_FIRST_ATTEMPT_MS, remaining)
+      : remaining;
 
-        console.warn(`Rayna Gemini ${model} returned ${attempt.status}: ${attempt.errorMessage || 'no text'}`);
-        if (attempt.status === 401 || attempt.status === 403) return null; // Bad key: other models will not help.
-        if (attempt.status === 400 && withThinking && /thinking/i.test(attempt.errorMessage)) {
-          withThinking = false; // This model rejects the thinking setting; retry it without.
-          continue;
-        }
-        break; // 404 / 429 / 5xx / empty or blocked output: move on to the next model.
-      } catch (error) {
-        console.warn(`Rayna Gemini ${model} failed:`, error?.name === 'TimeoutError' ? 'timeout' : error?.message || error);
-        break;
+    try {
+      const attempt = await requestModel({
+        apiKey,
+        model,
+        systemInstruction,
+        contents,
+        timeoutMs,
+      });
+
+      if (attempt.ok && attempt.text) {
+        return {
+          text: tidyReply(attempt.text),
+          model,
+        };
       }
+
+      console.warn(
+        `Rayna Gemini ${model} returned ${attempt.status}: ${
+          attempt.errorMessage || 'no text'
+        }`
+      );
+
+      // A bad API key will not be fixed by changing models.
+      if (attempt.status === 401 || attempt.status === 403) {
+        return null;
+      }
+
+      // Any model-level failure moves to the next configured model.
+    } catch (error) {
+      const isAbort =
+        error?.name === 'AbortError' ||
+        error?.name === 'TimeoutError';
+
+      console.warn(
+        `Rayna Gemini ${model} failed:`,
+        isAbort ? 'request timed out' : error?.message || error
+      );
     }
   }
+
   return null;
 }
 
@@ -568,10 +618,9 @@ export async function POST(request) {
     // An order is looked up ONLY when the visitor's current message itself
     // contains an explicit Order ID / Bill Number. Earlier turns are never
     // re-scanned, and nothing is ever enumerated.
-    const smallTalk = isSimpleSmallTalk(latest.text);
     const orderReference = extractOrderReference(latest.text);
     const [liveContext, orderLookup] = await Promise.all([
-      smallTalk && !orderReference ? { works: [], creators: [], unavailable: false } : getLiveContext(),
+      getLiveContext(),
       queryOrderRecord(orderReference),
     ]);
 
@@ -580,7 +629,7 @@ export async function POST(request) {
       return NextResponse.json({ reply: fallbackAnswer(latest.text, liveContext, orderLookup), mode: 'fallback' });
     }
 
-    const systemInstruction = buildSystemInstruction({ liveContext, orderReference, orderLookup, smallTalk });
+    const systemInstruction = buildSystemInstruction({ liveContext, orderReference, orderLookup });
     const contents = messages.map((entry) => ({ role: entry.role, parts: [{ text: entry.text }] }));
     const generated = await generateWithGemini({ apiKey, systemInstruction, contents });
 

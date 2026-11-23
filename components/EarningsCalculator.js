@@ -5,7 +5,7 @@ const money = (value) => new Intl.NumberFormat('en-IN', { style: 'currency', cur
 export default function EarningsCalculator({ creatorRole = 'Painter' }) {
   const [price, setPrice] = useState('10000');
   const photographer = creatorRole === 'Photographer';
-  const feeRate = photographer ? 0.05 : 0.02;
+  const feeRate = photographer ? 0.10 : 0.15;
   const payoutRate = 1 - feeRate;
   const amount = Math.max(0, Number(price) || 0);
   const fee = Math.round(amount * feeRate * 100) / 100;

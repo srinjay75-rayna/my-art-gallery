@@ -59,8 +59,41 @@ export async function POST(request) {
     if (payment.status !== 'captured') return NextResponse.json({ error: `Payment is not captured yet (status: ${payment.status || 'unknown'}).` }, { status: 409 });
 
     const result = await processCapturedOrder({ order, paymentId });
-    if (result.needsManualReview) return NextResponse.json({ ok: true, paid: false, needsManualReview: true, message: result.message }, { status: 202 });
-    return NextResponse.json({ ok: true, paid: true, shipmentCreated: result.shipmentCreated, message: result.message });
+    if (result.needsManualReview) {
+      return NextResponse.json({
+        ok: true,
+        paid: false,
+        needsManualReview: true,
+        message: result.message,
+      }, { status: 202 });
+    }
+
+    // The database trigger assigns ART-YYYY-00001 when the order transitions
+    // to Paid. This RPC is an idempotent safety net for older paid records.
+    const { data: billNumber, error: billError } = await supabase.rpc(
+      'ensure_artiste_bill_number',
+      { p_order_id: order.id }
+    );
+
+    if (billError || !billNumber) {
+      console.error('Sequential Bill of Supply assignment failed:', billError?.message || 'No bill number returned.');
+      return NextResponse.json({
+        ok: true,
+        paid: true,
+        shipmentCreated: result.shipmentCreated,
+        billNumber: null,
+        billWarning: 'Payment was verified. The official Bill Number is being prepared; refresh My Orders shortly.',
+        message: result.message,
+      }, { status: 200 });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      paid: true,
+      billNumber,
+      shipmentCreated: result.shipmentCreated,
+      message: result.message,
+    });
   } catch (error) {
     console.error('Payment verification failed:', error.message);
     return NextResponse.json({ error: error.message || 'Payment verification failed.' }, { status: 400 });

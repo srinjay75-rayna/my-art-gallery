@@ -172,7 +172,7 @@ export async function POST(request) {
     const orderItems = enrichedPaintings.map((painting) => {
       const price = money(painting.price);
       const creatorRole = painting.creator_role === 'Photographer' ? 'Photographer' : 'Painter';
-      const commissionRate = creatorRole === 'Photographer' ? 0.05 : 0.02;
+      const commissionRate = creatorRole === 'Photographer' ? 0.10 : 0.15;
       const platformFee = money(price * commissionRate);
       return {
         id: painting.id,

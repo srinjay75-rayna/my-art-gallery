@@ -42,8 +42,8 @@ function clientFallback(message) {
   if (isGoodbye(q)) {
     return 'It was lovely helping you today. Thank you for visiting Artiste, and do come back whenever you feel like exploring something beautiful. Take care!';
   }
-  if (/\b(track|order|bill|bos-ar|awb|dispatch)\b/.test(q)) {
-    return 'Please share your Artiste Order ID or Bill Number (BOS-AR-…) and I’ll help you find the latest order and dispatch details. You can also visit My Orders in your account for your official Bill of Supply.';
+  if (/\b(track|order|bill|bos-ar|art-\d{4}-\d{5,}|awb|dispatch)\b/.test(q)) {
+    return 'Please share your Artiste Order ID or serial Bill Number (for example ART-2026-00001; older bills may start BOS-AR-) and I’ll help you find the latest order and dispatch details. You can also visit My Orders in your account for your official Bill of Supply.';
   }
   if (/\b(photo|photograph\w*|print|edition)\b/.test(q)) {
     return 'Our Photography Wing features curated Fine-Art Photographs, with edition and print details on each listing. You can explore it at /photography.';

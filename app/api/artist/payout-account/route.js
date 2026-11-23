@@ -1,10 +1,22 @@
 import { NextResponse } from 'next/server';
 import { requireServiceRole } from '@/lib/supabase';
-import { getUserFromRequest, getArtistForUser } from '@/lib/auth-server';
+import { getUserFromRequest } from '@/lib/auth-server';
 import { encryptPayoutValue, maskBankAccount } from '@/lib/encryption';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+async function getArtistForPortal(supabase, user) {
+  const role = user.user_metadata?.creator_role === 'Photographer' ? 'Photographer' : 'Painter';
+  let { data, error } = await supabase.from('artists').select('*').eq('user_id', user.id).eq('creator_role', role).maybeSingle();
+  if (error) throw error;
+  if (!data && role === 'Painter') {
+    const legacy = await supabase.from('artists').select('*').eq('user_id', user.id).is('creator_role', null).maybeSingle();
+    if (legacy.error) throw legacy.error;
+    data = legacy.data || null;
+  }
+  return data;
+}
 
 async function lookupIfsc(ifsc) {
   const response = await fetch(`https://ifsc.razorpay.com/${encodeURIComponent(ifsc)}`, { cache: 'no-store', signal: AbortSignal.timeout(10000) });
@@ -19,7 +31,7 @@ export async function GET(request) {
   try {
     const user = await getUserFromRequest(request, { accountType: 'artist' });
     const supabase = requireServiceRole();
-    const artist = await getArtistForUser(supabase, user.id);
+    const artist = await getArtistForPortal(supabase, user);
     if (!artist) return NextResponse.json({ account: null });
     const { data, error } = await supabase.from('artist_payout_accounts')
       .select('artist_id,account_holder_name,bank_account_number_masked,ifsc_code,bank_name,branch_name,upi_id,verified_at,updated_at')
@@ -45,7 +57,7 @@ export async function POST(request) {
     if (upi && !/^[\w.-]{2,256}@[\w.-]{2,64}$/.test(upi)) return NextResponse.json({ error: 'Enter a valid UPI ID, or leave it blank.' }, { status: 400 });
 
     const supabase = requireServiceRole();
-    const artist = await getArtistForUser(supabase, user.id);
+    const artist = await getArtistForPortal(supabase, user);
     if (!artist) return NextResponse.json({ error: 'Save your Artist profile and pickup address before adding payout details.' }, { status: 409 });
     const bank = await lookupIfsc(ifsc);
     const encrypted = encryptPayoutValue(accountNumber);

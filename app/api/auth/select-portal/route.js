@@ -20,6 +20,7 @@ export async function POST(request) {
 
     const body = await readJsonBody(request, 4 * 1024);
     const accountType = String(body.accountType || '').trim().toLowerCase();
+    const selectedCreatorRole = body.creatorRole === 'Photographer' ? 'Photographer' : 'Painter';
     if (!ALLOWED.has(accountType)) {
       return NextResponse.json({ error: 'Choose the Customer or Artist portal.' }, { status: 400 });
     }
@@ -43,17 +44,25 @@ export async function POST(request) {
     }
 
     let membership = null;
-    let creatorRole = null;
-
     if (accountType === 'artist') {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('artists')
         .select('id,creator_role')
         .eq('user_id', user.id)
+        .eq('creator_role', selectedCreatorRole)
         .maybeSingle();
       if (error) throw error;
+      if (!data && selectedCreatorRole === 'Painter') {
+        const legacy = await supabase
+          .from('artists')
+          .select('id,creator_role')
+          .eq('user_id', user.id)
+          .is('creator_role', null)
+          .maybeSingle();
+        if (legacy.error) throw legacy.error;
+        data = legacy.data || null;
+      }
       membership = data;
-      creatorRole = data?.creator_role === 'Photographer' ? 'Photographer' : 'Painter';
     } else {
       // The current Artiste schema stores Customer accounts in public.profiles.
       const { data, error } = await supabase
@@ -104,7 +113,7 @@ export async function POST(request) {
       account_type: accountType,
       portal_accounts: memberships,
       brand: 'Artiste',
-      ...(accountType === 'artist' ? { creator_role: creatorRole } : {}),
+      ...(accountType === 'artist' ? { creator_role: selectedCreatorRole } : {}),
     };
 
     const { data: updateData, error: updateError } = await supabase.auth.admin.updateUserById(
@@ -116,7 +125,7 @@ export async function POST(request) {
     return NextResponse.json({
       verified: true,
       accountType,
-      creatorRole: accountType === 'artist' ? creatorRole : undefined,
+      creatorRole: accountType === 'artist' ? selectedCreatorRole : undefined,
       user: {
         id: user.id,
         email: user.email,

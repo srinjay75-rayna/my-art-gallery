@@ -8,7 +8,7 @@ const blank = { title: '', medium: '', dimensions: '', price: '', weight_kg: '0.
 const tabs = ['Paintings', 'Artists', 'Orders', 'ACCOUNTS & LEDGER'];
 const dash = (v) => v || '—';
 const roleName = (value) => value === 'Photographer' ? 'Photographer' : 'Artist';
-const roleRate = (value) => value === 'Photographer' ? 0.05 : 0.02;
+const roleRate = (value) => value === 'Photographer' ? 0.10 : 0.15;
 const csv = (value) => `\"${String(value ?? '').replaceAll('\"', '\"\"')}\"`;
 
 function makeAccountsLedger(payouts, orders, artists) {
@@ -26,7 +26,13 @@ function makeAccountsLedger(payouts, orders, artists) {
     const shippingCollected = shipmentMatches.reduce((total, shipment) => total + Number(shipment.shipping_amount || 0), 0) ||
       ((orderPayoutCount(payouts, row.order_id) === 1) ? Number(order.shipping_amount ?? order.shipping_price ?? 0) : 0);
     return {
-      ...row, order, creator, creator_role: creatorRole, commission_rate: Number(row.commission_rate ?? roleRate(creatorRole)),
+      ...row,
+      order,
+      creator,
+      creator_role: creatorRole,
+      commission_rate: roleRate(creatorRole),
+      platform_fee: Number(row.gross_amount || 0) * roleRate(creatorRole),
+      artist_payout: Number(row.gross_amount || 0) * (1 - roleRate(creatorRole)),
       order_date: order.paid_at || order.created_at || row.created_at,
       item_title: matchedItems.map((item) => item.title || item.painting_title).filter(Boolean).join(', ') || 'Artwork',
       shipping_collected: shippingCollected,

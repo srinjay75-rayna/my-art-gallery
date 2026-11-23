@@ -11,6 +11,7 @@ export async function PATCH(request, { params }) {
     if (typeof body.is_approved !== 'boolean') return NextResponse.json({ error: 'is_approved must be true or false.' }, { status: 400 });
     const supabase = requireServiceRole();
     const { data: artist, error } = await supabase.from('artists').update({
+      approved: body.is_approved,
       is_approved: body.is_approved,
       is_suspended: !body.is_approved,
     }).eq('id', id).select('*').single();

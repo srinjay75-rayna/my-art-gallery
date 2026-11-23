@@ -41,6 +41,9 @@ export default function ArtistPage() {
   const [ledger, setLedger] = useState([]);
   const [form, setForm] = useState(artworkBlank);
   const [photo, setPhoto] = useState(null);
+  const [materialCost, setMaterialCost] = useState('0');
+  const [hoursWorked, setHoursWorked] = useState('0');
+  const [hourlyRate, setHourlyRate] = useState('350');
   const [busy, setBusy] = useState(false);
   const [ifscBusy, setIfscBusy] = useState(false);
   const [editingDetails, setEditingDetails] = useState(false);
@@ -85,7 +88,7 @@ export default function ArtistPage() {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${value.access_token}`,
             },
-            body: JSON.stringify({ accountType: 'artist' }),
+            body: JSON.stringify({ accountType: 'artist', creatorRole: value.user?.user_metadata?.creator_role === 'Photographer' ? 'Photographer' : 'Painter' }),
             cache: 'no-store',
           });
           const result = await response.json().catch(() => ({}));
@@ -135,6 +138,26 @@ export default function ArtistPage() {
       subscription?.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!artist) return;
+    setHourlyRate(artist.creator_role === 'Photographer' ? '400' : '350');
+    setForm((current) => ({
+      ...current,
+      category: artist.creator_role === 'Photographer' ? 'Photography' : 'Painting',
+    }));
+  }, [artist?.id, artist?.creator_role]);
+
+  const feeRate = artist?.creator_role === 'Photographer' ? 0.10 : 0.15;
+  const payoutRate = 1 - feeRate;
+  const listingPrice = Math.max(0, Number(form.price) || 0);
+  const calculatorBasePrice =
+    Math.max(0, Number(materialCost) || 0) +
+    Math.max(0, Number(hoursWorked) || 0) *
+    Math.max(0, Number(hourlyRate) || 0);
+  const platformFeePreview = Math.round(listingPrice * feeRate * 100) / 100;
+  const netPayoutPreview = Math.max(0, listingPrice - platformFeePreview);
+  const pctText = (value) => `${Math.round(value * 100)}%`;
 
   const authHeaders = () => ({ Authorization: `Bearer ${session?.access_token || ''}` });
   async function api(url, options = {}) {
@@ -298,7 +321,16 @@ export default function ArtistPage() {
       data.append('photo', photo);
       const result = await api('/api/artist/paintings', { method: 'POST', body: data });
       setNotice(result.message);
-      setForm(artworkBlank); setPhoto(null);
+      setForm({
+        ...artworkBlank,
+        category: artistProfile.creator_role === 'Photographer'
+          ? 'Photography'
+          : 'Painting',
+      });
+      setMaterialCost('0');
+      setHoursWorked('0');
+      setHourlyRate(artistProfile.creator_role === 'Photographer' ? '400' : '350');
+      setPhoto(null);
       const photoInput = document.getElementById('artist-painting-photo');
       if (photoInput) photoInput.value = '';
       await load(false);
@@ -356,7 +388,7 @@ export default function ArtistPage() {
 
         <div className="mt-7 grid items-start gap-7 lg:grid-cols-[.9fr_1.1fr]">
           <section className="rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] p-6 shadow-soft md:p-7">
-            <p className="eyebrow flex items-center gap-2"><Palette size={13}/> Artist Studio • {artist?.creator_role === 'Photographer' ? 'Photographer — 5% Platform Fee' : 'Painter — 2% Platform Fee'}</p>
+            <p className="eyebrow flex items-center gap-2"><Palette size={13}/> Artist Studio • {artist?.creator_role === 'Photographer' ? 'Photographer — 10% Platform Fee' : 'Painter — 15% Platform Fee'}</p>
             <h2 className="mt-2 font-display text-3xl">List an Artwork</h2>
             <p className="mt-2 text-xs leading-5 text-muted">Your verified {artist?.creator_role === 'Photographer' ? 'Photographer' : 'Artist'} studio can publish original paintings and fine-art photography directly to the Artiste gallery.</p>
             {isSuspended && <p className="mt-4 rounded-xl bg-red-50 p-3 text-xs text-red-800">Publishing is disabled while your account is suspended.</p>}
@@ -364,9 +396,99 @@ export default function ArtistPage() {
               <label className="label">Art Form / Discipline<select className="field mt-1" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}><option value="Painting">Original Painting</option><option value="Photography">Fine-Art Photography</option></select></label>
               <label className="label">{form.category === 'Photography' ? 'Photograph file' : 'Artwork photo'}<input id="artist-painting-photo" type="file" accept="image/jpeg,image/png,image/webp,image/avif" required onChange={(e) => setPhoto(e.target.files?.[0] || null)} className="mt-2 block w-full text-xs"/></label>
               {[
-                ['title', 'Title'], ['medium', form.category === 'Photography' ? 'Photographic process / medium' : 'Medium'], ['dimensions', 'Artwork dimensions'],
-                ['price', 'Price (INR)'], ['stock_quantity', form.category === 'Photography' ? 'Available print quantity' : 'Stock quantity'], ['edition_details', 'Edition details (optional)'], ['print_details', 'Print / paper details (optional)'], ['weight_kg', 'Packed weight (kg)'],
-              ].map(([name, label]) => <label className="label" key={name}>{label}<input className="field mt-1" value={form[name]} onChange={(e) => setForm({ ...form, [name]: e.target.value })} required type={['price', 'weight_kg', 'stock_quantity'].includes(name) ? 'number' : 'text'} step={name === 'weight_kg' ? '0.1' : name === 'price' ? '0.01' : name === 'stock_quantity' ? '1' : undefined} min={name === 'weight_kg' ? '0.2' : name === 'price' ? '1' : name === 'stock_quantity' ? '1' : undefined} max={name === 'stock_quantity' ? '10000' : undefined}/>{name === 'weight_kg' && <small className="text-muted">Light parcels from 0.2 kg · default 0.5 kg</small>}{name === 'stock_quantity' && <small className="text-muted">Set 1 for a one-off original or higher for limited print editions.</small>}</label>)}
+                ['title', 'Title'],
+                ['medium', form.category === 'Photography' ? 'Photographic process / medium' : 'Medium'],
+                ['dimensions', 'Artwork dimensions'],
+              ].map(([name, label]) => (
+                <label className="label" key={name}>
+                  {label}
+                  <input
+                    className="field mt-1"
+                    value={form[name]}
+                    onChange={(e) => setForm((current) => ({ ...current, [name]: e.target.value }))}
+                    required
+                    maxLength={name === 'title' ? 120 : 100}
+                  />
+                </label>
+              ))}
+
+              <section className="rounded-2xl border border-[#D9C6A6] bg-[#FAF6F0] p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="eyebrow">Optional pricing tool</p>
+                    <h3 className="mt-1 font-display text-xl">Artwork Pricing &amp; Payout Calculator</h3>
+                  </div>
+                  <span className="pill">Private to your studio</span>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <label className="label">
+                    Material / Production Cost (₹)
+                    <input className="field mt-1" type="number" min="0" step="0.01" value={materialCost} onChange={(e) => setMaterialCost(e.target.value)} />
+                  </label>
+                  <label className="label">
+                    Hours Worked
+                    <input className="field mt-1" type="number" min="0" step="0.5" value={hoursWorked} onChange={(e) => setHoursWorked(e.target.value)} />
+                  </label>
+                  <label className="label">
+                    Suggested Hourly Rate (₹/hr)
+                    <input className="field mt-1" type="number" min="0" step="1" value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} />
+                  </label>
+                </div>
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-[#F3ECE1] p-3">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-muted">Suggested Base Price</p>
+                    <p className="mt-1 font-display text-2xl">{money(calculatorBasePrice)}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setForm((current) => ({ ...current, price: calculatorBasePrice.toFixed(2) }))}
+                    className="btn-secondary"
+                  >
+                    Apply Suggested Price
+                  </button>
+                </div>
+              </section>
+
+              <label className="label">
+                Listing Price (INR)
+                <input className="field mt-1" value={form.price} onChange={(e) => setForm((current) => ({ ...current, price: e.target.value }))} required type="number" min="1" step="0.01" />
+                <small className="text-muted">You may apply the suggested amount or enter any custom listing price.</small>
+              </label>
+
+              {listingPrice > 0 && (
+                <div className="rounded-xl border border-[#D9C6A6] bg-[#263832] p-4 text-white">
+                  <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#D7B995]">Private payout preview</p>
+                  <p className="mt-2 text-sm font-semibold">
+                    Your Net Payout ({pctText(payoutRate)}): {money(netPayoutPreview)}
+                  </p>
+                  <p className="mt-1 text-xs text-[#E7DDD0]">
+                    Artiste Fee ({pctText(feeRate)}): {money(platformFeePreview)}
+                  </p>
+                </div>
+              )}
+
+              {[
+                ['stock_quantity', form.category === 'Photography' ? 'Available print quantity' : 'Stock quantity'],
+                ['edition_details', 'Edition details (optional)'],
+                ['print_details', 'Print / paper details (optional)'],
+                ['weight_kg', 'Packed weight (kg)'],
+              ].map(([name, label]) => (
+                <label className="label" key={name}>
+                  {label}
+                  <input
+                    className="field mt-1"
+                    value={form[name]}
+                    onChange={(e) => setForm((current) => ({ ...current, [name]: e.target.value }))}
+                    required={name === 'stock_quantity' || name === 'weight_kg'}
+                    type={['weight_kg', 'stock_quantity'].includes(name) ? 'number' : 'text'}
+                    step={name === 'weight_kg' ? '0.1' : name === 'stock_quantity' ? '1' : undefined}
+                    min={name === 'weight_kg' ? '0.2' : name === 'stock_quantity' ? '1' : undefined}
+                    max={name === 'stock_quantity' ? '10000' : undefined}
+                  />
+                  {name === 'weight_kg' && <small className="text-muted">Light parcels from 0.2 kg · default 0.5 kg</small>}
+                  {name === 'stock_quantity' && <small className="text-muted">Set 1 for a one-off original or higher for limited print editions.</small>}
+                </label>
+              ))}
               <div className="grid grid-cols-3 gap-2">{['length_cm', 'breadth_cm', 'height_cm'].map((name) => <label key={name} className="label">{name.replace('_cm', '')} cm<input className="field mt-1" type="number" min="0.1" step="0.1" required value={form[name]} onChange={(e) => setForm({ ...form, [name]: e.target.value })}/></label>)}</div>
               <button disabled={busy || isSuspended || !payoutAccount?.verified_at} className="btn-primary inline-flex items-center justify-center gap-2">{busy ? 'Publishing…' : isSuspended ? 'Studio suspended' : 'Publish Artwork'} <ArrowUpRight size={15}/></button>
             </form>
@@ -374,7 +496,7 @@ export default function ArtistPage() {
 
           <section className="min-w-0">
             <div className="rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] p-6 shadow-soft md:p-7">
-              <p className="eyebrow flex items-center gap-2"><Wallet size={13}/> Sales &amp; Payouts • {artist?.creator_role === 'Photographer' ? 'Photographer · 5% Fee / 95% Payout' : 'Painter · 2% Fee / 98% Payout'}</p>
+              <p className="eyebrow flex items-center gap-2"><Wallet size={13}/> Sales &amp; Payouts • {artist?.creator_role === 'Photographer' ? 'Photographer · 10% Fee / 90% Payout' : 'Painter · 15% Fee / 85% Payout'}</p>
               <h2 id="earnings" className="mt-2 scroll-mt-28 font-display text-3xl">My Works &amp; Earnings</h2>
               <div className="mt-5 grid gap-3">{artworks.map((painting) => <article key={painting.id} className="flex gap-3 rounded-2xl border border-[#D9C6A6] bg-[#F3ECE1] p-3">
                 <img src={painting.image_url} alt={painting.title} className="h-24 w-20 rounded-xl object-cover"/>
@@ -394,7 +516,7 @@ export default function ArtistPage() {
             <form onSubmit={saveProfile} className="rounded-2xl border border-[#eee6db] p-5">
               <h3 className="font-display text-2xl">Creator profile &amp; studio pickup</h3>
               <div className="mt-4 flex flex-wrap items-center gap-4"><label className="group relative flex h-24 w-24 cursor-pointer items-center justify-center overflow-hidden rounded-full border-4 border-[#eadbca] bg-[#f5eadc] shadow-soft">{avatarUrl ? <img src={avatarUrl} alt="Artist profile preview" className="h-full w-full object-cover"/> : <span className="font-display text-3xl text-clay">A</span>}<span className="absolute inset-x-0 bottom-0 bg-ink/75 py-1 text-center text-[9px] font-bold uppercase tracking-wider text-white">Change photo</span><input type="file" accept="image/jpeg,image/png,image/webp,image/avif" onChange={(e) => setProfilePhoto(e.target.files?.[0] || null)} className="sr-only"/></label><div><p className="font-semibold">Circular Creator profile photo</p><p className="mt-1 max-w-sm text-xs leading-5 text-muted">Upload a JPG, PNG, WEBP or AVIF image up to 6 MB. It appears beside your Artist name in the public gallery.</p>{profilePhoto && <p className="mt-1 text-xs text-green-700">New photo selected. Save your Artist profile to publish it.</p>}</div></div>
-              <div className="mt-5 grid gap-4 md:grid-cols-2"><label className="label">Creator Role<select className="field mt-1" value={profile.creator_role || 'Painter'} onChange={(e) => setProfile({ ...profile, creator_role: e.target.value })}><option value="Painter">Painter (displayed as Artist)</option><option value="Photographer">Photographer</option></select></label><label className="label">Creator / Studio name<input className="field mt-1" value={profile.artist_name} onChange={(e) => setProfile({ ...profile, artist_name: e.target.value })} required maxLength={100}/></label><label className="label">Verified email<input className="field mt-1" value={session.user.email || ''} readOnly/></label><label className="label md:col-span-2">Artist bio<textarea className="field mt-1 min-h-24" value={profile.bio} onChange={(e) => setProfile({ ...profile, bio: e.target.value })} required maxLength={1200} placeholder="Tell collectors about your practice…"/></label></div>
+              <div className="mt-5 grid gap-4 md:grid-cols-2"><label className="label">Creator Discipline<input className="field mt-1" value={artist?.creator_role || 'Painter'} readOnly/><small className="text-muted">Discipline is fixed for this studio. Register a separate Photographer or Painter profile to use another discipline with the same email.</small></label><label className="label">Creator / Studio name<input className="field mt-1" value={profile.artist_name} onChange={(e) => setProfile({ ...profile, artist_name: e.target.value })} required maxLength={100}/></label><label className="label">Verified email<input className="field mt-1" value={session.user.email || ''} readOnly/></label><label className="label md:col-span-2">Artist bio<textarea className="field mt-1 min-h-24" value={profile.bio} onChange={(e) => setProfile({ ...profile, bio: e.target.value })} required maxLength={1200} placeholder="Tell collectors about your practice…"/></label></div>
               <div className="mt-5 border-t border-[#eee6db] pt-5"><h4 className="font-display text-xl">Artist pickup address</h4><div className="mt-3"><IndianAddressForm value={pickup} onChange={(patch) => { setPickup((current) => ({ ...current, ...patch })); setProfile((current) => ({ ...current, ...(patch.city ? { city: patch.city } : {}), ...(patch.state ? { state: patch.state } : {}) })); }} showContact addressLabel="Full pickup street address"/></div><label className="label mt-4 block">Shiprocket pickup location name<input className="field mt-1" value={profile.pickup_location} onChange={(e) => setProfile({ ...profile, pickup_location: e.target.value })} required placeholder="Exact location name in Shiprocket"/></label></div>
               <button disabled={busy} className="btn-primary mt-5 inline-flex items-center gap-2">{busy ? 'Saving studio…' : 'Save Studio Profile'} <ArrowUpRight size={15}/></button>
             </form>

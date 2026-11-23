@@ -27,6 +27,21 @@ export async function GET(request, { params }) {
       return NextResponse.json({ error: 'The official Bill of Supply is available after payment is confirmed as Paid.' }, { status: 409 });
     }
 
+    let billNumber = order.bill_number || null;
+    if (!/^ART-\d{4}-\d{5,}$/.test(String(billNumber || ''))) {
+      const { data: generatedBill, error: billError } = await supabase.rpc(
+        'ensure_artiste_bill_number',
+        { p_order_id: orderId }
+      );
+      if (billError || !generatedBill) {
+        console.error('Could not ensure sequential Bill of Supply:', billError?.message || 'No serial bill returned.');
+        return NextResponse.json({
+          error: 'This paid order does not yet have its sequential Bill of Supply number. Run database/schema.sql and try again.',
+        }, { status: 503 });
+      }
+      billNumber = generatedBill;
+    }
+
     let role = owner ? 'owner' : 'customer';
     let artistId = null;
     let artistNameForRequest = '';
@@ -35,7 +50,13 @@ export async function GET(request, { params }) {
       const userType = user.user_metadata?.account_type;
       if (userType === 'artist') {
         role = 'artist';
-        const { data: artist, error: artistError } = await supabase.from('artists').select('id,artist_name').eq('user_id', user.id).maybeSingle();
+        const creatorRole = user.user_metadata?.creator_role === 'Photographer' ? 'Photographer' : 'Painter';
+        let { data: artist, error: artistError } = await supabase.from('artists').select('id,artist_name').eq('user_id', user.id).eq('creator_role', creatorRole).maybeSingle();
+        if (!artist && creatorRole === 'Painter' && !artistError) {
+          const legacyArtist = await supabase.from('artists').select('id,artist_name').eq('user_id', user.id).is('creator_role', null).maybeSingle();
+          artist = legacyArtist.data || null;
+          artistError = legacyArtist.error;
+        }
         if (artistError) throw artistError;
         artistId = artist?.id || null;
         const artistName = String(artist?.artist_name || '').trim().toLowerCase();
@@ -97,7 +118,7 @@ export async function GET(request, { params }) {
     const safeOrder = {
       id: order.id,
       merchant_order_ref: order.merchant_order_ref,
-      bill_number: order.bill_number || null,
+      bill_number: billNumber,
       created_at: order.created_at,
       paid_at: order.paid_at,
       status: order.status,

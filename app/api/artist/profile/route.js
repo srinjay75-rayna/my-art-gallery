@@ -13,7 +13,13 @@ export async function GET(request) {
   try {
     const user = await getUserFromRequest(request, { accountType: 'artist' });
     const supabase = requireServiceRole();
-    const { data: foundArtist, error } = await supabase.from('artists').select('*').eq('user_id', user.id).maybeSingle();
+    const creatorRole = user.user_metadata?.creator_role === 'Photographer' ? 'Photographer' : 'Painter';
+    let { data: foundArtist, error } = await supabase.from('artists').select('*').eq('user_id', user.id).eq('creator_role', creatorRole).maybeSingle();
+    if (!foundArtist && creatorRole === 'Painter' && !error) {
+      const legacy = await supabase.from('artists').select('*').eq('user_id', user.id).is('creator_role', null).maybeSingle();
+      foundArtist = legacy.data || null;
+      error = legacy.error;
+    }
     if (error) throw error;
     let artist = foundArtist || null;
     // V11 creates an Artist draft atomically during the successful OTP sign-up.
@@ -40,7 +46,7 @@ export async function GET(request) {
       // Automatically activate complete, IFSC-verified studios. The explicit
       // owner-controlled is_suspended flag always takes precedence.
       if (profileComplete && payoutAccount?.verified_at && !artist.is_suspended && !artist.is_approved) {
-        const { data: activated, error: activateError } = await supabase.from('artists').update({ is_approved: true }).eq('id', artist.id).eq('is_suspended', false).select('*').single();
+        const { data: activated, error: activateError } = await supabase.from('artists').update({ approved: true, is_approved: true }).eq('id', artist.id).eq('is_suspended', false).select('*').single();
         if (activateError) throw activateError;
         artist = activated;
         const { error: paintingsError } = await supabase.from('paintings').update({ is_approved: true, artist_name: artist.artist_name, avatar_url: artist.avatar_url || artist.profile_photo_url || '' }).eq('artist_id', artist.id).eq('is_sold', false);
@@ -58,7 +64,11 @@ export async function POST(request) {
     const user = await getUserFromRequest(request, { accountType: 'artist' });
     const form = await request.formData();
     const artistName = String(form.get('artist_name') || '').trim();
-    const creatorRole = form.get('creator_role') === 'Photographer' ? 'Photographer' : 'Painter';
+    const creatorRole = user.user_metadata?.creator_role === 'Photographer' ? 'Photographer' : 'Painter';
+    const submittedCreatorRole = form.get('creator_role') === 'Photographer' ? 'Photographer' : 'Painter';
+    if (submittedCreatorRole !== creatorRole) {
+      return NextResponse.json({ error: 'The discipline selected at sign-up is fixed for this Creator studio. Create a separate portal profile to register another discipline.' }, { status: 403 });
+    }
     const bio = String(form.get('bio') || '').trim();
     const city = String(form.get('city') || '').trim();
     const state = String(form.get('state') || '').trim();
@@ -74,7 +84,12 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Complete your Artist name, bio, pickup contact name, +91 mobile number, street address, landmark, locality, city, State / UT and valid 6-digit pickup PIN code.' }, { status: 400 });
     }
     const supabase = requireServiceRole();
-    const { data: existing, error: existingError } = await supabase.from('artists').select('id,profile_photo_url,avatar_url,is_approved,is_suspended,creator_role').eq('user_id', user.id).maybeSingle();
+    let { data: existing, error: existingError } = await supabase.from('artists').select('id,profile_photo_url,avatar_url,is_approved,is_suspended,creator_role').eq('user_id', user.id).eq('creator_role', creatorRole).maybeSingle();
+    if (!existing && creatorRole === 'Painter' && !existingError) {
+      const legacy = await supabase.from('artists').select('id,profile_photo_url,avatar_url,is_approved,is_suspended,creator_role').eq('user_id', user.id).is('creator_role', null).maybeSingle();
+      existing = legacy.data || null;
+      existingError = legacy.error;
+    }
     if (existingError) throw existingError;
     if (!existing) {
       return NextResponse.json({ error: 'No Artist profile is registered for this email. Sign up through the Artist Portal first.' }, { status: 403 });
@@ -90,6 +105,7 @@ export async function POST(request) {
     const row = {
       user_id: user.id,
       email: String(user.email || '').toLowerCase(),
+      phone: `+91${pickupPhoneDigits}`,
       artist_name: artistName,
       creator_role: creatorRole,
       bio,
@@ -107,15 +123,16 @@ export async function POST(request) {
       is_suspended: Boolean(existing?.is_suspended),
       // The payout-account endpoint activates the Artist as soon as the
       // profile and verified bank details are both complete.
-      is_approved: Boolean(existing?.is_approved && !existing?.is_suspended),
+      approved: Boolean((existing?.approved || existing?.is_approved) && !existing?.is_suspended),
+      is_approved: Boolean((existing?.is_approved || existing?.approved) && !existing?.is_suspended),
     };
-    const { data: saved, error } = await supabase.from('artists').upsert(row, { onConflict: 'user_id' }).select('*').single();
+    const { data: saved, error } = await supabase.from('artists').upsert(row, { onConflict: 'user_id,creator_role' }).select('*').single();
     if (error) throw error;
     let data = saved;
     const { data: payoutStatus, error: payoutStatusError } = await supabase.from('artist_payout_accounts').select('verified_at').eq('artist_id', saved.id).maybeSingle();
     if (payoutStatusError) throw payoutStatusError;
     if (payoutStatus?.verified_at && !saved.is_suspended) {
-      const { data: activated, error: activateError } = await supabase.from('artists').update({ is_approved: true }).eq('id', saved.id).eq('is_suspended', false).select('*').single();
+      const { data: activated, error: activateError } = await supabase.from('artists').update({ approved: true, is_approved: true }).eq('id', saved.id).eq('is_suspended', false).select('*').single();
       if (activateError) throw activateError;
       data = activated;
     }

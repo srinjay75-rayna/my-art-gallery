@@ -1,8 +1,20 @@
 import { NextResponse } from 'next/server';
 import { requireServiceRole } from '@/lib/supabase';
-import { getUserFromRequest, getArtistForUser } from '@/lib/auth-server';
+import { getUserFromRequest } from '@/lib/auth-server';
 
 export const runtime = 'nodejs';
+
+async function getArtistForPortal(supabase, user) {
+  const role = user.user_metadata?.creator_role === 'Photographer' ? 'Photographer' : 'Painter';
+  let { data, error } = await supabase.from('artists').select('*').eq('user_id', user.id).eq('creator_role', role).maybeSingle();
+  if (error) throw error;
+  if (!data && role === 'Painter') {
+    const legacy = await supabase.from('artists').select('*').eq('user_id', user.id).is('creator_role', null).maybeSingle();
+    if (legacy.error) throw legacy.error;
+    data = legacy.data || null;
+  }
+  return data;
+}
 
 export async function PATCH(request, { params }) {
   try {
@@ -10,7 +22,7 @@ export async function PATCH(request, { params }) {
     const { id } = await params;
     const body = await request.json();
     const supabase = requireServiceRole();
-    const artist = await getArtistForUser(supabase, user.id);
+    const artist = await getArtistForPortal(supabase, user);
     if (!artist) return NextResponse.json({ error: 'Artist profile not found.' }, { status: 404 });
     if (artist.is_suspended) return NextResponse.json({ error: 'Your Artist account is suspended by the Artiste owner.' }, { status: 403 });
     const { data: existing, error: existingError } = await supabase.from('paintings').select('id,is_sold,stock_quantity').eq('id', id).eq('artist_id', artist.id).maybeSingle();
@@ -49,7 +61,7 @@ export async function DELETE(request, { params }) {
     const user = await getUserFromRequest(request, { accountType: 'artist' });
     const { id } = await params;
     const supabase = requireServiceRole();
-    const artist = await getArtistForUser(supabase, user.id);
+    const artist = await getArtistForPortal(supabase, user);
     if (!artist) return NextResponse.json({ error: 'Artist profile not found.' }, { status: 404 });
     if (artist.is_suspended) return NextResponse.json({ error: 'Your Artist account is suspended by the Artiste owner.' }, { status: 403 });
     const { data: painting, error: readError } = await supabase.from('paintings').select('id,image_url').eq('id', id).eq('artist_id', artist.id).single();

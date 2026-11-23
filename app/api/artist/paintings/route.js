@@ -1,17 +1,29 @@
 import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { requireServiceRole } from '@/lib/supabase';
-import { getUserFromRequest, getArtistForUser } from '@/lib/auth-server';
+import { getUserFromRequest } from '@/lib/auth-server';
 
 export const runtime = 'nodejs';
 const types = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/avif']);
 const ext = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/avif': 'avif' };
 
+async function getArtistForPortal(supabase, user) {
+  const role = user.user_metadata?.creator_role === 'Photographer' ? 'Photographer' : 'Painter';
+  let { data, error } = await supabase.from('artists').select('*').eq('user_id', user.id).eq('creator_role', role).maybeSingle();
+  if (error) throw error;
+  if (!data && role === 'Painter') {
+    const legacy = await supabase.from('artists').select('*').eq('user_id', user.id).is('creator_role', null).maybeSingle();
+    if (legacy.error) throw legacy.error;
+    data = legacy.data || null;
+  }
+  return data;
+}
+
 export async function GET(request) {
   try {
     const user = await getUserFromRequest(request, { accountType: 'artist' });
     const supabase = requireServiceRole();
-    const artist = await getArtistForUser(supabase, user.id);
+    const artist = await getArtistForPortal(supabase, user);
     if (!artist) return NextResponse.json({ paintings: [], error: 'Create your artist profile first.' }, { status: 404 });
     const paintings = [];
     for (let start = 0; ; start += 1000) {
@@ -29,7 +41,7 @@ export async function POST(request) {
   try {
     const user = await getUserFromRequest(request, { accountType: 'artist' });
     const supabase = requireServiceRole();
-    const artistProfile = await getArtistForUser(supabase, user.id);
+    const artistProfile = await getArtistForPortal(supabase, user);
     if (!artistProfile) return NextResponse.json({ error: 'Create your Artist profile before listing an artwork.' }, { status: 403 });
     if (artistProfile.is_suspended) return NextResponse.json({ error: 'Your Artist account is currently suspended by the Artiste owner. Please contact support.' }, { status: 403 });
     const { data: payoutAccount, error: payoutError } = await supabase.from('artist_payout_accounts').select('verified_at').eq('artist_id', artistProfile.id).maybeSingle();
@@ -57,6 +69,12 @@ export async function POST(request) {
     const printDetails = String(form.get('print_details') || '').trim().slice(0, 240);
     const category = requestedCategory === 'Photography' || requestedCategory === 'Fine-Art Photography' ? 'Photography' : requestedCategory === 'Painting' || requestedCategory === 'Original Painting' ? 'Painting' : null;
     if (!category) return NextResponse.json({ error: 'Choose Original Painting or Fine-Art Photography.' }, { status: 400 });
+    const requiredCategory = artistProfile.creator_role === 'Photographer' ? 'Photography' : 'Painting';
+    if (category !== requiredCategory) {
+      return NextResponse.json({
+        error: `This studio is registered as a ${artistProfile.creator_role === 'Photographer' ? 'Photographer' : 'Painter'} studio and can only publish ${requiredCategory === 'Photography' ? 'Fine-Art Photography' : 'Original Paintings'}.`,
+      }, { status: 403 });
+    }
     if (!Number.isInteger(stockQuantity) || stockQuantity < 1 || stockQuantity > 10000) return NextResponse.json({ error: 'Stock quantity must be a whole number from 1 to 10,000.' }, { status: 400 });
     const numeric = {};
     for (const field of ['price', 'length_cm', 'breadth_cm', 'height_cm', 'weight_kg']) {

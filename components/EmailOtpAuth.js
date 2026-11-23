@@ -106,7 +106,7 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
           purpose,
           name: name.trim(),
           phone: purpose === 'signup' ? `+91${phone}` : undefined,
-          creatorRole: purpose === 'signup' && isArtist ? creatorRole : undefined,
+          creatorRole: isArtist ? creatorRole : undefined,
         }),
       });
       const result = await response.json().catch(() => ({}));
@@ -152,6 +152,7 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
           purpose,
           otp,
           password: purpose === 'signup' || resetPasswordFlow ? password : undefined,
+          creatorRole: isArtist ? creatorRole : undefined,
         }),
       });
       const result = await response.json().catch(() => ({}));
@@ -182,46 +183,47 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
     setBusy(true);
     setError('');
     setNotice('');
+
     try {
       const normalizedEmail = email.trim().toLowerCase();
-      if (!normalizedEmail || !password) throw new Error('Enter your email address and password.');
-      const supabase = getBrowserSupabase();
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email: normalizedEmail,
-        password,
-      });
-      if (authError) {
-        if (/invalid login credentials/i.test(authError.message || '')) {
-          throw new Error('Incorrect email or password. If you are unsure of your password, choose “Forgot password?” to set a new one with an email code.');
-        }
-        throw authError;
+
+      if (!normalizedEmail || !password) {
+        throw new Error('Enter your email address and password.');
       }
 
-      // One verified Auth identity may have both Artiste portal profiles.
-      // This server-side check selects only the portal whose profile exists and
-      // updates the Auth metadata used by the protected API routes.
-      const portalResponse = await fetch('/api/auth/select-portal', {
+      const response = await fetch('/api/auth/login-password', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${data.session?.access_token || ''}`,
-        },
-        body: JSON.stringify({ accountType }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: normalizedEmail,
+          password,
+          accountType,
+          creatorRole: isArtist ? creatorRole : undefined,
+        }),
         cache: 'no-store',
       });
-      const portalResult = await portalResponse.json().catch(() => ({}));
-      if (!portalResponse.ok) {
-        await supabase.auth.signOut({ scope: 'local' });
-        throw new Error(portalResult.error || `This email is not registered in the ${accountLabel} portal.`);
+
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(
+          result.error || 'Incorrect portal password. Use Forgot password to reset it.'
+        );
       }
 
-      // Refresh JWT/user metadata after the server selects the active portal.
-      const { error: refreshError } = await supabase.auth.refreshSession();
-      if (refreshError) {
-        await supabase.auth.signOut({ scope: 'local' });
-        throw refreshError;
+      if (!result.session?.access_token || !result.session?.refresh_token) {
+        throw new Error('Your portal was verified, but a session could not be started. Please try again.');
       }
 
+      const supabase = getBrowserSupabase();
+      const { error: sessionError } = await supabase.auth.setSession({
+        access_token: result.session.access_token,
+        refresh_token: result.session.refresh_token,
+      });
+
+      if (sessionError) throw sessionError;
+
+      setNotice(result.message || 'You are signed in to your selected Artiste portal.');
       router.replace(dashboardPath);
       router.refresh();
     } catch (err) {
@@ -274,9 +276,9 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
         </h2>
         <p className="mt-2 text-xs leading-6 text-muted">
           {resetPasswordFlow
-            ? 'Choose a new password, receive a 6-digit email code and verify it here to reset your password. This email has one shared password for both Customer and Artist portals.'
+            ? 'Choose a new password, receive a 6-digit email code and verify it here. This resets only the selected Customer, Painter or Photographer portal password.'
             : mode === 'login'
-              ? 'Choose password sign-in or receive a 6-digit email code. You will stay on this browser tab.'
+              ? 'Sign in with the password for this selected portal, or receive a 6-digit email code. Each portal has its own independent password.'
               : 'Enter your details and create a password. We will email a 6-digit code that you verify right here.'}
         </p>
 
@@ -298,18 +300,6 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
                 {isArtist ? 'Artist / Studio Name' : 'Full Name'}
                 <input className="field mt-1" required minLength={2} maxLength={100} autoComplete="name" disabled={otpSent || busy} value={name} onChange={(e) => setName(e.target.value)} placeholder={isArtist ? 'Your Artist or studio name' : 'Your full name'} />
               </label>
-              {isArtist && (
-                <label className="label">
-                  Choose Your Discipline
-                  <select className="field mt-1" value={creatorRole} onChange={(e) => setCreatorRole(e.target.value)} disabled={otpSent || busy}>
-                    <option value="Painter">Painter — 2% Platform Fee · You Keep 98%</option>
-                    <option value="Photographer">Photographer — 5% Platform Fee · You Keep 95%</option>
-                  </select>
-                  <span className="mt-2 block text-[10px] font-normal normal-case tracking-normal text-muted">
-                    This choice sets up your Artist Studio and default listing category. You can update your discipline later in My Profile.
-                  </span>
-                </label>
-              )}
               <label className="label">
                 Mobile Number <span className="normal-case tracking-normal text-clay">+91</span>
                 <div className="mt-1 flex items-center rounded-xl border border-[#D9C6A6] bg-[#FAF6F0] px-3">
@@ -325,6 +315,24 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
             <input className="field mt-1" type="email" autoComplete="email" required disabled={otpSent || busy} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
           </label>
 
+          {isArtist && (
+            <label className="label">
+              Choose Your Discipline
+              <select
+                className="field mt-1"
+                value={creatorRole}
+                onChange={(e) => setCreatorRole(e.target.value)}
+                disabled={otpSent || busy}
+              >
+                <option value="Painter">Painter</option>
+                <option value="Photographer">Photographer</option>
+              </select>
+              <span className="mt-1 block text-[10px] font-normal normal-case tracking-normal text-muted">
+                Choose the Artist studio you want to access. Painter and Photographer profiles can use separate passwords with the same email.
+              </span>
+            </label>
+          )}
+
           {(mode === 'signup' || (mode === 'login' && loginMethod === 'password') || resetPasswordFlow) && (
             <label className="label">
               {mode === 'signup' ? 'Create Password' : resetPasswordFlow ? 'New Password' : 'Password'}
@@ -334,7 +342,7 @@ export default function EmailOtpAuth({ accountType = 'customer', onSent }) {
 
           {mode === 'signup' && (
             <p className="-mt-2 text-[10px] leading-5 text-muted">
-              One email address uses one Artiste sign-in password. If you add the other portal with this same email, the password you set here will be shared by both Customer and Artist access.
+              Each portal has its own independent password. You may register a Customer, Painter and Photographer profile using the same email address.
             </p>
           )}
 
