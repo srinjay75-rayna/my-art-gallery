@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
-import { createClient } from '@supabase/supabase-js';
 import { requireServiceRole } from '@/lib/supabase';
+import {
+  createPortalSession,
+  attachPortalSessionCookie,
+} from '@/lib/auth-server';
+import { hashPortalPassword } from '@/lib/portal-password';
 import {
   enforceRateLimit,
   rateLimitJsonResponse,
@@ -13,25 +17,14 @@ export const dynamic = 'force-dynamic';
 
 const ALLOWED_ACCOUNT_TYPES = new Set(['customer', 'artist']);
 const ALLOWED_PURPOSES = new Set(['login', 'signup']);
-
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 const MIN_PASSWORD = 8;
 const MAX_PASSWORD = 72;
-
-const SESSION_COOKIE = 'artiste_portal_session';
-const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
 
 function normalizeCreatorRole(value) {
   return String(value || '').trim().toLowerCase() === 'photographer'
     ? 'Photographer'
     : 'Painter';
-}
-
-function getPortalRole(accountType, creatorRole) {
-  return accountType === 'customer'
-    ? 'customer'
-    : normalizeCreatorRole(creatorRole).toLowerCase();
 }
 
 function disciplineNotRegisteredMessage(role) {
@@ -44,7 +37,9 @@ function otpHash({ email, accountType, purpose, code }) {
     process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!key) {
-    throw new Error('OTP_HASH_SECRET is not configured on the server.');
+    throw new Error(
+      'OTP_HASH_SECRET or SUPABASE_SERVICE_ROLE_KEY is not configured on the server.'
+    );
   }
 
   return crypto
@@ -53,52 +48,44 @@ function otpHash({ email, accountType, purpose, code }) {
     .digest('hex');
 }
 
-function passwordHash(password) {
-  const salt = crypto.randomBytes(16);
-
-  const derived = crypto.scryptSync(
-    String(password),
-    salt,
-    64,
-    {
-      N: 16384,
-      r: 8,
-      p: 1,
-      maxmem: 64 * 1024 * 1024,
-    }
-  );
-
-  return `scrypt$16384$8$1$${salt.toString('base64')}$${derived.toString('base64')}`;
+function roleTable(accountType) {
+  return accountType === 'customer' ? 'profiles' : 'artists';
 }
 
 async function savePortalPassword(
   supabase,
-  email,
+  profile,
   accountType,
-  creatorRole,
   password
 ) {
   if (!password) return;
 
-  const { error } = await supabase
-    .from('portal_credentials')
-    .upsert({
-      email: email.toLowerCase(),
-      portal_role: getPortalRole(accountType, creatorRole),
-      password_hash: passwordHash(password),
-      updated_at: new Date().toISOString(),
-    }, {
-      onConflict: 'email,portal_role',
-    });
+  if (!profile?.id) {
+    const error = new Error(
+      'The selected portal profile could not be identified to save its password.'
+    );
 
-  if (error) {
+    error.status = 503;
+    throw error;
+  }
+
+  const { data, error } = await supabase
+    .from(roleTable(accountType))
+    .update({
+      password_hash: hashPortalPassword(password),
+    })
+    .eq('id', profile.id)
+    .select('id')
+    .maybeSingle();
+
+  if (error || !data?.id) {
     console.error(
-      'Artiste portal credential save failed:',
-      error.message
+      'Artiste role-row password save failed:',
+      error?.message || 'Profile row was not updated.'
     );
 
     const issue = new Error(
-      'Your portal password could not be saved. Run the V13 database/schema.sql migration and try again.'
+      'Your independent portal password could not be saved. Run the password_hash database migration for public.profiles and public.artists, then try again.'
     );
 
     issue.status = 503;
@@ -153,6 +140,7 @@ async function findExistingAuthUserByEmail(supabase, email) {
         'Artiste profile email lookup skipped:',
         result.error.message
       );
+
       continue;
     }
 
@@ -172,9 +160,8 @@ async function findExistingAuthUserByEmail(supabase, email) {
     }
   }
 
-  // The Auth identity is shared by all portal roles.
-  // Actual portal membership is checked separately in profiles/artists.
-
+  // One Supabase Auth identity can be shared across the Customer, Painter
+  // and Photographer portals. Membership is checked separately in role rows.
   const perPage = 1000;
 
   for (let page = 1; page <= 200; page += 1) {
@@ -213,7 +200,7 @@ async function getPortalProfile(
 
     const { data, error } = await supabase
       .from('artists')
-      .select('id,user_id,email,creator_role')
+      .select('id,user_id,email,creator_role,artist_name,phone,password_hash')
       .eq('email', email)
       .ilike('creator_role', role)
       .limit(1)
@@ -226,7 +213,7 @@ async function getPortalProfile(
 
   const { data, error } = await supabase
     .from('profiles')
-    .select('id,email')
+    .select('id,email,full_name,phone,password_hash')
     .eq('email', email)
     .limit(1)
     .maybeSingle();
@@ -263,7 +250,7 @@ async function ensureLegacyCustomerProfile(
     }, {
       onConflict: 'id',
     })
-    .select('id,email')
+    .select('id,email,full_name,phone')
     .single();
 
   if (error) throw error;
@@ -389,8 +376,15 @@ function safeMessage(error) {
     return 'This exact Artiste portal already exists for this email. Choose Existing User — Log In.';
   }
 
+  if (
+    ['42703', 'PGRST204'].includes(String(error?.code || '')) ||
+    /password_hash.*(does not exist|schema cache)|column .*password_hash/i.test(value)
+  ) {
+    return 'The password_hash database migration is missing. Add password_hash to public.profiles and public.artists, then try again.';
+  }
+
   if (Number(error?.status) >= 500) {
-    return value.includes('V13 database/schema.sql')
+    return value.includes('password_hash')
       ? value
       : 'Something went wrong while verifying your code. Please try again.';
   }
@@ -398,227 +392,32 @@ function safeMessage(error) {
   return value;
 }
 
-function createSessionClient() {
-  const url =
-    process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    process.env.SUPABASE_URL;
-
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!url || !key) {
-    throw new Error(
-      'Supabase public URL and anon key are not configured on the server.'
-    );
-  }
-
-  return createClient(url, key, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
-    },
-  });
-}
-
-/* ==========================================
-   SIGNED HTTP-ONLY SESSION COOKIE
-========================================== */
-
-function sessionSigningSecret() {
-  const secret =
-    process.env.AUTH_SESSION_SECRET ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!secret) {
-    throw new Error(
-      'AUTH_SESSION_SECRET or SUPABASE_SERVICE_ROLE_KEY is required to sign the portal session cookie.'
-    );
-  }
-
-  return secret;
-}
-
-function internalAuthPassword(userId, email) {
-  return crypto
-    .createHmac('sha256', sessionSigningSecret())
-    .update(
-      `artiste-internal-auth-password-v1|${userId}|${email.toLowerCase()}`
-    )
-    .digest('hex');
-}
-
-function signPortalSessionCookie(
-  established,
-  accountType,
-  creatorRole
-) {
-  const now = Math.floor(Date.now() / 1000);
-
-  const payload = {
-    version: 1,
-    sub: established.user.id,
-    email: established.user.email,
-    account_type: accountType,
-
-    ...(accountType === 'artist'
-      ? {
-          creator_role: normalizeCreatorRole(creatorRole),
-        }
-      : {}),
-
-    session: established.session,
-    iat: now,
-    exp: now + SESSION_COOKIE_MAX_AGE,
-  };
-
-  const encoded = Buffer
-    .from(JSON.stringify(payload))
-    .toString('base64url');
-
-  const signature = crypto
-    .createHmac('sha256', sessionSigningSecret())
-    .update(encoded)
-    .digest('base64url');
-
-  return `${encoded}.${signature}`;
-}
-
-function attachPortalSessionCookie(
-  response,
-  established,
-  accountType,
-  creatorRole
-) {
-  response.cookies.set(
-    SESSION_COOKIE,
-    signPortalSessionCookie(
-      established,
-      accountType,
-      creatorRole
-    ),
-    {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: SESSION_COOKIE_MAX_AGE,
-    }
-  );
-
-  return response;
-}
-
-/* ==========================================
-   SUPABASE SESSION ISSUANCE
-
-   The custom 6-digit OTP has already been verified
-   against public.email_otps. We do NOT call
-   supabase.auth.verifyOtp() for that code.
-========================================== */
-
-async function mintUserSession(
+async function linkLegacyArtistProfile(
   supabase,
-  email,
+  profile,
   user,
-  accountType,
-  creatorRole
+  email
 ) {
-  const metadata = {
-    ...(user.user_metadata || {}),
-    account_type: accountType,
-    brand: 'Artiste',
-    portal_accounts: portalAccountsFor(user, accountType),
-
-    ...(accountType === 'artist'
-      ? {
-          creator_role: normalizeCreatorRole(creatorRole),
-        }
-      : {}),
-  };
-
-  // Supabase Auth has one shared identity per email.
-  // Portal passwords are independently checked against
-  // salted hashes in public.portal_credentials.
-  //
-  // This internal deterministic password is only used to
-  // obtain a legitimate Supabase access/refresh session.
-  // It is never shown to or supplied by the customer.
-
-  const internalPassword = internalAuthPassword(
-    user.id,
-    email
-  );
-
-  const appMetadata = {
-    ...(user.app_metadata || {}),
-    artiste_session_auth_version: 1,
-  };
-
-  const { data: updated, error: updateError } =
-    await supabase.auth.admin.updateUserById(
-      user.id,
-      {
-        password: internalPassword,
-        email_confirm: true,
-        user_metadata: metadata,
-        app_metadata: appMetadata,
-      }
-    );
-
-  if (updateError || !updated?.user) {
-    throw updateError || new Error(
-      'Could not prepare your secure Artiste session.'
-    );
-  }
-
-  // Obtain valid Supabase tokens through the password grant.
-  // No custom OTP or magic-link verification is involved.
-
-  const { data: signedIn, error: signInError } =
-    await createSessionClient().auth.signInWithPassword({
-      email,
-      password: internalPassword,
-    });
-
   if (
-    signInError ||
-    !signedIn?.session ||
-    !signedIn?.user
+    !profile ||
+    !user?.id ||
+    String(profile.user_id || '') === String(user.id)
   ) {
-    console.error(
-      'Artiste internal session sign-in failed:',
-      signInError?.message ||
-      'Supabase did not return a session.'
-    );
-
-    throw signInError || new Error(
-      'Could not establish your Artiste session.'
-    );
+    return profile;
   }
 
-  return {
-    session: {
-      access_token: signedIn.session.access_token,
-      refresh_token: signedIn.session.refresh_token,
-      expires_in: signedIn.session.expires_in,
-      expires_at: signedIn.session.expires_at,
-      token_type: signedIn.session.token_type,
-    },
+  const { data, error } = await supabase
+    .from('artists')
+    .update({ user_id: user.id })
+    .eq('id', profile.id)
+    .eq('email', email)
+    .select('id,user_id,email,creator_role,artist_name,phone,password_hash')
+    .maybeSingle();
 
-    user: {
-      id: signedIn.user.id || user.id,
-      email: signedIn.user.email || email,
-      user_metadata: signedIn.user.user_metadata || metadata,
-      email_confirmed_at:
-        signedIn.user.email_confirmed_at ||
-        new Date().toISOString(),
-    },
-  };
+  if (error) throw error;
+
+  return data || profile;
 }
-
-/* ==========================================
-   POST /api/auth/verify-otp
-========================================== */
 
 export async function POST(request) {
   try {
@@ -687,11 +486,14 @@ export async function POST(request) {
 
     if (
       (purpose === 'signup' || requestedPassword) &&
-      requestedPassword.length < MIN_PASSWORD
+      (
+        requestedPassword.length < MIN_PASSWORD ||
+        requestedPassword.length > MAX_PASSWORD
+      )
     ) {
       return NextResponse.json(
         {
-          error: `Your password must contain at least ${MIN_PASSWORD} characters.`,
+          error: `Your password must contain ${MIN_PASSWORD}–${MAX_PASSWORD} characters.`,
         },
         { status: 400 }
       );
@@ -708,10 +510,8 @@ export async function POST(request) {
 
     const supabase = requireServiceRole();
 
-    // IMPORTANT:
-    // The user's custom six-digit code is consumed ONLY by the
-    // server-side email_otps RPC. No Supabase Auth OTP verification.
-
+    // Consume the one-time Artiste OTP. This is not a Supabase Auth OTP
+    // and is never passed to supabase.auth.verifyOtp().
     const { data: consumed, error: consumeError } =
       await supabase.rpc('consume_email_otp', {
         p_email: email,
@@ -790,11 +590,8 @@ export async function POST(request) {
     }
 
     let user = null;
+    let portalProfile = null;
     let reusedAuthUser = false;
-
-    /* ======================================
-       NEW USER SIGN-UP
-    ====================================== */
 
     if (purpose === 'signup') {
       if (
@@ -821,9 +618,6 @@ export async function POST(request) {
             account_type: 'customer',
             brand: 'Artiste',
           };
-
-      // Reuse one Supabase Auth identity for the email.
-      // Each individual portal has its own password hash.
 
       const generatedAuthPassword = crypto
         .randomBytes(36)
@@ -889,12 +683,24 @@ export async function POST(request) {
         );
       }
 
-      // Save a separate salted password hash for this portal.
-      await savePortalPassword(
+      portalProfile = await getPortalProfile(
         supabase,
         email,
         accountType,
-        activeCreatorRole,
+        activeCreatorRole
+      );
+
+      if (!portalProfile) {
+        throw new Error(
+          'Your portal profile could not be created. Please try again.'
+        );
+      }
+
+      // Each Customer / Painter / Photographer row owns its own scrypt hash.
+      await savePortalPassword(
+        supabase,
+        portalProfile,
+        accountType,
         requestedPassword
       );
 
@@ -932,37 +738,26 @@ export async function POST(request) {
       }
 
       user = metadataUpdate.data.user;
-
     } else {
-
-      /* ======================================
-         EXISTING USER — OTP LOGIN / RESET
-      ====================================== */
-
+      // Existing-user OTP login and Forgot Password use the same verified
+      // code flow. No password is required for OTP login itself.
       user = await findExistingAuthUserByEmail(
         supabase,
         email
       );
 
       if (!user) {
-        if (accountType === 'artist') {
-          return NextResponse.json(
-            {
-              error: disciplineNotRegisteredMessage(activeCreatorRole),
-            },
-            { status: 404 }
-          );
-        }
-
         return NextResponse.json(
           {
-            error: 'You are not registered as a Customer yet. Please click New User — Sign Up above to create a separate Customer account with its own password.',
+            error: accountType === 'artist'
+              ? disciplineNotRegisteredMessage(activeCreatorRole)
+              : 'You are not registered as a Customer yet. Please click New User — Sign Up above to create a separate Customer account with its own password.',
           },
           { status: 404 }
         );
       }
 
-      let portalProfile = await getPortalProfile(
+      portalProfile = await getPortalProfile(
         supabase,
         email,
         accountType,
@@ -981,38 +776,36 @@ export async function POST(request) {
       }
 
       if (!portalProfile) {
-        if (accountType === 'artist') {
-          return NextResponse.json(
-            {
-              error: disciplineNotRegisteredMessage(activeCreatorRole),
-            },
-            { status: 404 }
-          );
-        }
-
         return NextResponse.json(
           {
-            error: 'You are not registered as a Customer yet. Please click New User — Sign Up above to create a separate Customer account with its own password.',
+            error: accountType === 'artist'
+              ? disciplineNotRegisteredMessage(activeCreatorRole)
+              : 'You are not registered as a Customer yet. Please click New User — Sign Up above to create a separate Customer account with its own password.',
           },
           { status: 404 }
         );
       }
 
       if (accountType === 'artist') {
+        portalProfile = await linkLegacyArtistProfile(
+          supabase,
+          portalProfile,
+          user,
+          email
+        );
+
         activeCreatorRole = normalizeCreatorRole(
           portalProfile.creator_role
         );
       }
 
-      // A password submitted in the reset flow updates only the
-      // selected portal's independent password hash.
-
+      // This branch is only used by Forgot Password. A regular OTP login
+      // passes no password and signs in directly after OTP consumption.
       if (requestedPassword) {
         await savePortalPassword(
           supabase,
-          email,
+          portalProfile,
           accountType,
-          activeCreatorRole,
           requestedPassword
         );
       }
@@ -1055,17 +848,15 @@ export async function POST(request) {
       user = updateResult.data.user;
     }
 
-    /* ======================================
-       ISSUE SUPABASE SESSION + HTTP-ONLY COOKIE
-    ====================================== */
-
-    const established = await mintUserSession(
-      supabase,
-      email,
+    // The application session is a server-signed v1 token, not a Supabase JWT.
+    // Its profileId binds it to exactly one selected role row.
+    const established = createPortalSession({
+      profile: portalProfile,
       user,
+      email,
       accountType,
-      activeCreatorRole
-    );
+      creatorRole: activeCreatorRole,
+    });
 
     const roleName = accountType === 'customer'
       ? 'Customer'
@@ -1088,23 +879,18 @@ export async function POST(request) {
             ? `Your ${roleName} portal password has been updated.`
             : `Your ${roleName} portal email is verified and you are signed in.`,
 
-      // Existing EmailOtpAuth.js uses these tokens with setSession().
-      // Retained for compatibility with the current V13 frontend.
       session: established.session,
       user: established.user,
     });
 
     attachPortalSessionCookie(
       response,
-      established,
-      accountType,
-      activeCreatorRole
+      established.token
     );
 
     response.headers.set('Cache-Control', 'no-store');
 
     return response;
-
   } catch (error) {
     console.error(
       'Artiste verify OTP error:',
