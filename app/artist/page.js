@@ -102,6 +102,9 @@ export default function ArtistPage() {
   const [materialCost, setMaterialCost] = useState('0');
   const [hoursWorked, setHoursWorked] = useState('0');
   const [hourlyRate, setHourlyRate] = useState('350');
+  const [packingCost, setPackingCost] = useState('0');
+  const [otherStudioOverhead, setOtherStudioOverhead] = useState('0');
+  const [profitMultiplier, setProfitMultiplier] = useState('2.5');
 
   const [busy, setBusy] = useState(false);
   const [ifscBusy, setIfscBusy] = useState(false);
@@ -175,7 +178,7 @@ export default function ArtistPage() {
   }, [artist?.id, artist?.creator_role]);
 
   /* ==========================================
-     CREATOR COMMISSION CALCULATIONS
+     PRIVATE ARTWORK PRICING CALCULATIONS
   ========================================== */
 
   const feeRate = artist?.creator_role === 'Photographer'
@@ -184,26 +187,21 @@ export default function ArtistPage() {
 
   const payoutRate = 1 - feeRate;
 
-  const listingPrice = Math.max(
-    0,
-    Number(form.price) || 0
-  );
-
   const calculatorBasePrice =
     Math.max(0, Number(materialCost) || 0) +
-    Math.max(0, Number(hoursWorked) || 0) *
-    Math.max(0, Number(hourlyRate) || 0);
+    (
+      Math.max(0, Number(hoursWorked) || 0) *
+      Math.max(0, Number(hourlyRate) || 0)
+    ) +
+    Math.max(0, Number(packingCost) || 0) +
+    Math.max(0, Number(otherStudioOverhead) || 0);
 
-  const platformFeePreview = Math.round(
-    listingPrice * feeRate * 100
-  ) / 100;
+  const targetArtistTakeHome =
+    calculatorBasePrice * Math.max(0, Number(profitMultiplier) || 0);
 
-  const netPayoutPreview = Math.max(
-    0,
-    listingPrice - platformFeePreview
+  const recommendedListingPrice = Math.ceil(
+    targetArtistTakeHome / payoutRate
   );
-
-  const pctText = (value) => `${Math.round(value * 100)}%`;
 
   /* ==========================================
      UNIFIED AUTHENTICATED API HELPER
@@ -608,6 +606,9 @@ export default function ArtistPage() {
 
       setMaterialCost('0');
       setHoursWorked('0');
+      setPackingCost('0');
+      setOtherStudioOverhead('0');
+      setProfitMultiplier('2.5');
 
       setHourlyRate(
         artistProfile.creator_role === 'Photographer'
@@ -1006,32 +1007,23 @@ export default function ArtistPage() {
                       ))}
 
                       {/* ==================================
-                          PRICING CALCULATOR
+                          PRIVATE PRICING CALCULATOR
                       ================================== */}
 
                       <section className="rounded-2xl border border-[#D9C6A6] bg-[#FAF6F0] p-4">
-
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div>
-                            <p className="eyebrow">
-                              Optional pricing tool
-                            </p>
-
+                            <p className="eyebrow">Optional private pricing tool</p>
                             <h3 className="mt-1 font-display text-xl">
                               Artwork Pricing &amp; Payout Calculator
                             </h3>
                           </div>
-
-                          <span className="pill">
-                            Private to your studio
-                          </span>
+                          <span className="pill">Private to your studio</span>
                         </div>
 
-                        <div className="mt-4 grid gap-3 sm:grid-cols-3">
-
+                        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                           <label className="label">
-                            Material / Production Cost (₹)
-
+                            Cost of Materials (₹)
                             <input
                               className="field mt-1"
                               type="number"
@@ -1040,11 +1032,13 @@ export default function ArtistPage() {
                               value={materialCost}
                               onChange={(e) => setMaterialCost(e.target.value)}
                             />
+                            <small className="text-muted">
+                              Canvas, paints, brushes, archival print or framing.
+                            </small>
                           </label>
 
                           <label className="label">
                             Hours Worked
-
                             <input
                               className="field mt-1"
                               type="number"
@@ -1056,8 +1050,7 @@ export default function ArtistPage() {
                           </label>
 
                           <label className="label">
-                            Suggested Hourly Rate (₹/hr)
-
+                            Hourly Rate (₹/hr)
                             <input
                               className="field mt-1"
                               type="number"
@@ -1066,35 +1059,98 @@ export default function ArtistPage() {
                               value={hourlyRate}
                               onChange={(e) => setHourlyRate(e.target.value)}
                             />
+                            <small className="text-muted">
+                              Suggested: ₹350/hr for Painters · ₹400/hr for Photographers.
+                            </small>
                           </label>
 
+                          <label className="label">
+                            Packing Cost (₹)
+                            <input
+                              className="field mt-1"
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={packingCost}
+                              onChange={(e) => setPackingCost(e.target.value)}
+                            />
+                            <small className="text-muted">
+                              Protective wrap, corner protectors, tube or box.
+                            </small>
+                          </label>
+
+                          <label className="label">
+                            Other Studio Overhead (₹) — Optional
+                            <input
+                              className="field mt-1"
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={otherStudioOverhead}
+                              onChange={(e) => setOtherStudioOverhead(e.target.value)}
+                            />
+                            <small className="text-muted">
+                              Electricity, varnish, mounting or studio upkeep. Defaults to ₹0.
+                            </small>
+                          </label>
+
+                          <label className="label">
+                            Profit Margin Multiplier (x)
+                            <input
+                              className="field mt-1"
+                              type="number"
+                              min="0"
+                              step="0.1"
+                              value={profitMultiplier}
+                              onChange={(e) => setProfitMultiplier(e.target.value)}
+                            />
+                            <small className="text-muted">
+                              Standard gallery multiplier: 2.5x. Edit freely.
+                            </small>
+                          </label>
                         </div>
 
-                        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-[#F3ECE1] p-3">
-
+                        <div className="mt-4 grid gap-3 rounded-xl bg-[#F3ECE1] p-4 sm:grid-cols-3">
                           <div>
                             <p className="text-[10px] uppercase tracking-wider text-muted">
-                              Suggested Base Price
+                              Base Production Cost
                             </p>
-
-                            <p className="mt-1 font-display text-2xl">
+                            <p className="mt-1 font-display text-xl">
                               {money(calculatorBasePrice)}
                             </p>
                           </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wider text-muted">
+                              Target Artist Take-Home
+                            </p>
+                            <p className="mt-1 font-display text-xl">
+                              {money(targetArtistTakeHome)}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wider text-muted">
+                              Recommended Listing Price
+                            </p>
+                            <p className="mt-1 font-display text-xl">
+                              {money(recommendedListingPrice)}
+                            </p>
+                          </div>
+                        </div>
 
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                          <p className="text-xs text-muted">
+                            The recommendation accounts for your applicable Artiste fee.
+                          </p>
                           <button
                             type="button"
-                            onClick={() => setForm(
-                              (current) => ({
-                                ...current,
-                                price: calculatorBasePrice.toFixed(2),
-                              })
-                            )}
+                            onClick={() => setForm((current) => ({
+                              ...current,
+                              price: String(recommendedListingPrice),
+                            }))}
                             className="btn-secondary"
                           >
-                            Apply Suggested Price
+                            Apply Recommended Price
                           </button>
-
                         </div>
                       </section>
 
@@ -1121,34 +1177,9 @@ export default function ArtistPage() {
                         />
 
                         <small className="text-muted">
-                          You may apply the suggested amount or enter
-                          any custom listing price.
+                          Apply the recommended amount or enter any custom listing price.
                         </small>
                       </label>
-
-                      {/* ==================================
-                          PRIVATE PAYOUT PREVIEW
-                      ================================== */}
-
-                      {listingPrice > 0 && (
-                        <div className="rounded-xl border border-[#D9C6A6] bg-[#263832] p-4 text-white">
-
-                          <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#D7B995]">
-                            Private payout preview
-                          </p>
-
-                          <p className="mt-2 text-sm font-semibold">
-                            Your Net Payout ({pctText(payoutRate)}):{' '}
-                            {money(netPayoutPreview)}
-                          </p>
-
-                          <p className="mt-1 text-xs text-[#E7DDD0]">
-                            Artiste Fee ({pctText(feeRate)}):{' '}
-                            {money(platformFeePreview)}
-                          </p>
-
-                        </div>
-                      )}
 
                       {/* ==================================
                           STOCK, EDITION AND PRINT DETAILS
