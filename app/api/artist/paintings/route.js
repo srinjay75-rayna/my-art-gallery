@@ -19,7 +19,7 @@ async function getArtistForPortal(supabase, user) {
   return data;
 }
 
-function imageLimit(role) { return role === 'Photographer' ? 2 : 4; }
+function imageLimit(category) { return category === 'Photography' ? 2 : 4; }
 
 export async function GET(request) {
   try {
@@ -53,10 +53,12 @@ export async function POST(request) {
     const submittedArtistId = String(form.get('artist_id') || '').trim();
     if (submittedArtistId && submittedArtistId !== artist.id) return NextResponse.json({ error: 'The submitted Artist profile does not match your signed-in account.' }, { status: 403 });
 
-    const role = artist.creator_role === 'Photographer' ? 'Photographer' : 'Painter';
-    const limit = imageLimit(role);
+    const requestedCategory = String(form.get('category') || 'Painting').trim();
+    const category = requestedCategory === 'Photography' || requestedCategory === 'Fine-Art Photography' ? 'Photography' : requestedCategory === 'Painting' || requestedCategory === 'Original Painting' ? 'Painting' : null;
+    if (!category) return NextResponse.json({ error: 'Choose Original Painting or Fine-Art Photography.' }, { status: 400 });
+    const limit = imageLimit(category);
     const photos = [...form.getAll('photos'), form.get('photo')].filter((file) => file && typeof file.arrayBuffer === 'function' && file.size > 0);
-    if (photos.length < 1 || photos.length > limit) return NextResponse.json({ error: `${role === 'Photographer' ? 'Photographers' : 'Painters'} may upload up to ${limit} photos per artwork.` }, { status: 400 });
+    if (photos.length < 1 || photos.length > limit) return NextResponse.json({ error: `${category === 'Photography' ? 'Fine-Art Photography' : 'Original Paintings'} may include up to ${limit} photos per artwork.` }, { status: 400 });
     for (const photo of photos) {
       if (!IMAGE_TYPES.has(photo.type) || photo.size > 8 * 1024 * 1024) return NextResponse.json({ error: 'Each artwork photo must be JPG, PNG, WEBP or AVIF and no larger than 8 MB.' }, { status: 400 });
     }
@@ -66,14 +68,9 @@ export async function POST(request) {
     const dimensions = String(form.get('dimensions') || '').trim();
     const description = String(form.get('description') || '').trim().slice(0, 3000);
     const framedStatus = form.get('framed_status') === 'Framed' ? 'Framed' : 'Unframed';
-    const requestedCategory = String(form.get('category') || (role === 'Photographer' ? 'Photography' : 'Painting')).trim();
     const stockQuantity = Number(form.get('stock_quantity') || 1);
     const editionDetails = String(form.get('edition_details') || '').trim().slice(0, 180);
     const printDetails = String(form.get('print_details') || '').trim().slice(0, 240);
-    const category = requestedCategory === 'Photography' || requestedCategory === 'Fine-Art Photography' ? 'Photography' : requestedCategory === 'Painting' || requestedCategory === 'Original Painting' ? 'Painting' : null;
-    if (!category) return NextResponse.json({ error: 'Choose Original Painting or Fine-Art Photography.' }, { status: 400 });
-    const requiredCategory = role === 'Photographer' ? 'Photography' : 'Painting';
-    if (category !== requiredCategory) return NextResponse.json({ error: `This studio is registered as a ${role} studio and can only publish ${requiredCategory === 'Photography' ? 'Fine-Art Photography' : 'Original Paintings'}.` }, { status: 403 });
     if (!Number.isInteger(stockQuantity) || stockQuantity < 1 || stockQuantity > 10000) return NextResponse.json({ error: 'Stock quantity must be a whole number from 1 to 10,000.' }, { status: 400 });
 
     const numeric = {};

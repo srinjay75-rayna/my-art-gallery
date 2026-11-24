@@ -101,8 +101,11 @@ export default function ArtistPage() {
 
   const [form, setForm] = useState(artworkBlank);
   const [photos, setPhotos] = useState([]);
-  const [desiredPayout, setDesiredPayout] = useState('10000');
-  const [shippingBuffer, setShippingBuffer] = useState('750');
+  const [materialCost, setMaterialCost] = useState('0');
+  const [hoursWorked, setHoursWorked] = useState('0');
+  const [hourlyRate, setHourlyRate] = useState('500');
+  const [additionalOverheads, setAdditionalOverheads] = useState('0');
+  const [marginMultiplier, setMarginMultiplier] = useState('2.5');
   const [editingPaintingId, setEditingPaintingId] = useState(null);
   const [paintingEditForm, setPaintingEditForm] = useState({});
   const [paintingEditPhotos, setPaintingEditPhotos] = useState([]);
@@ -181,14 +184,10 @@ export default function ArtistPage() {
 
   useEffect(() => {
     if (!artist) return;
-
-    setForm((current) => ({
-      ...current,
-      category: artist.creator_role === 'Photographer'
-        ? 'Photography'
-        : 'Painting',
-    }));
-  }, [artist?.id, artist?.creator_role]);
+    setForm((current) => current.title || current.medium || current.price
+      ? current
+      : { ...current, category: 'Painting' });
+  }, [artist?.id]);
 
   /* ==========================================
      PRIVATE ARTIST PAYOUT CALCULATIONS
@@ -198,11 +197,13 @@ export default function ArtistPage() {
   const payoutRate = artist?.is_founding_artist ? 0.80 : 0.70;
   const platformRate = 1 - payoutRate;
 
-  const recommendedListingPrice = Math.ceil(
-    (Math.max(0, Number(desiredPayout) || 0) / payoutRate) +
-    Math.max(0, Number(shippingBuffer) || 0)
+  const suggestedBasePrice = Math.ceil(
+    (Math.max(0, Number(materialCost) || 0) +
+      Math.max(0, Number(hoursWorked) || 0) * Math.max(0, Number(hourlyRate) || 0) +
+      Math.max(0, Number(additionalOverheads) || 0)) *
+      Math.max(0, Number(marginMultiplier) || 0)
   );
-
+  const recommendedListingPrice = suggestedBasePrice;
   const artistNetPreview = recommendedListingPrice * payoutRate;
   const platformSharePreview = recommendedListingPrice * (1 - payoutRate);
 
@@ -251,26 +252,17 @@ export default function ArtistPage() {
       setArtist(data.artist || null);
       setLedger(data.ledger || []);
 
-      const defaultCategory =
-        data.artist?.creator_role === 'Photographer'
-          ? 'Photography'
-          : 'Painting';
-
-      setForm((current) =>
-        current.title || current.medium || current.price
-          ? current
-          : {
-              ...current,
-              category: defaultCategory,
-            }
-      );
+      setForm((current) => current.title || current.medium || current.price
+        ? current
+        : { ...current, category: 'Painting' });
 
       const complete = Boolean(
         data.artist?.artist_name &&
         data.artist?.bio &&
         data.artist?.pickup_address &&
         data.artist?.pickup_phone &&
-        data.artist?.pickup_landmark &&
+        data.artist?.whatsapp_number &&
+        data.artist?.email &&
         data.artist?.pickup_locality &&
         data.artist?.city &&
         data.artist?.state &&
@@ -573,11 +565,11 @@ export default function ArtistPage() {
   async function uploadArtwork(event) {
     event.preventDefault();
 
-    const photoLimit = artist?.creator_role === 'Photographer' ? 2 : 4;
+    const photoLimit = form.category === 'Photography' ? 2 : 4;
 
     if (photos.length < 1 || photos.length > photoLimit) {
       setError(
-        `Choose between 1 and ${photoLimit} artwork photos for this ${artist?.creator_role || 'Artist'} studio.`
+        `Choose between 1 and ${photoLimit} photos for this ${form.category === 'Photography' ? 'Fine-Art Photography' : 'Original Painting'}.`
       );
       return;
     }
@@ -623,10 +615,7 @@ export default function ArtistPage() {
 
       setForm({
         ...artworkBlank,
-        category:
-          artistProfile.creator_role === 'Photographer'
-            ? 'Photography'
-            : 'Painting',
+        category: 'Painting',
       });
 
       setPhotos([]);
@@ -1168,127 +1157,30 @@ export default function ArtistPage() {
                         </select>
                       </label>
 
-                      {/* PRIVATE ZERO-CAPITAL WEBSITE PRICE CALCULATOR */}
-
+                      {/* PRIVATE MATERIAL + HOURS PRICE CALCULATOR */}
                       <section className="rounded-2xl border border-[#D9C6A6] bg-[#FAF6F0] p-4">
-
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div>
-                            <p className="eyebrow">
-                              Private to your logged-in Creator Studio
-                            </p>
-
-                            <h3 className="mt-1 font-display text-xl">
-                              Zero-Capital Website Price Calculator
-                            </h3>
-                          </div>
-
-                          <span className="pill">
-                            {artist?.is_founding_artist
-                              ? 'Founding Artist · 80% share'
-                              : 'Standard Artist · 70% share'}
-                          </span>
+                          <div><p className="eyebrow">Private Creator Studio calculator</p><h3 className="mt-1 font-display text-xl">Material + Hours Pricing</h3></div>
+                          <span className="pill">{artist?.is_founding_artist ? 'Founding Artist · 80% share' : 'Standard Artist · 70% share'}</span>
                         </div>
-
                         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-
-                          <label className="label">
-                            Artist Desired Payout (₹)
-
-                            <input
-                              className="field mt-1"
-                              type="number"
-                              min="0"
-                              step="1"
-                              value={desiredPayout}
-                              onChange={(e) => setDesiredPayout(e.target.value)}
-                            />
-                          </label>
-
-                          <label className="label">
-                            Packaging &amp; Insured Courier Buffer (₹)
-
-                            <input
-                              className="field mt-1"
-                              type="number"
-                              min="0"
-                              step="1"
-                              value={shippingBuffer}
-                              onChange={(e) => setShippingBuffer(e.target.value)}
-                            />
-                          </label>
-
+                          <label className="label">Material / Production Cost (₹)<input className="field mt-1" type="number" min="0" step="1" value={materialCost} onChange={(e) => setMaterialCost(e.target.value)} /></label>
+                          <label className="label">Hours Worked<input className="field mt-1" type="number" min="0" step="0.5" value={hoursWorked} onChange={(e) => setHoursWorked(e.target.value)} /></label>
+                          <label className="label">Suggested Hourly Rate (₹/hr)<input className="field mt-1" type="number" min="0" step="1" value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} /></label>
+                          <label className="label">Additional Overheads (₹)<input className="field mt-1" type="number" min="0" step="1" value={additionalOverheads} onChange={(e) => setAdditionalOverheads(e.target.value)} /></label>
+                          <label className="label sm:col-span-2">Profit Margin Multiplier<input className="field mt-1" type="number" min="0.1" max="20" step="0.1" value={marginMultiplier} onChange={(e) => setMarginMultiplier(e.target.value)} /><small className="text-muted">Default 2.5x · editable by the artist</small></label>
                         </div>
-
-                        <p className="mt-3 text-xs leading-5 text-muted">
-                          Final Website Price = Math.ceil((Artist Desired Payout / {payoutRate.toFixed(2)}) + Packaging &amp; Insured Courier Buffer)
-                        </p>
-
+                        <p className="mt-3 text-xs text-muted">Suggested Base Price = Math.ceil((Material + (Hours × Hourly Rate) + Overheads) × Margin Multiplier)</p>
                         <div className="mt-4 rounded-2xl bg-[#173D31] p-5 text-[#F5F1E8]">
-
-                          <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#D0B48C]">
-                            PRIVATE PAYOUT PREVIEW
-                          </p>
-
+                          <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#D0B48C]">PRIVATE PAYOUT PREVIEW</p>
                           <div className="mt-3 grid gap-4 sm:grid-cols-3">
-
-                            <div>
-                              <p className="text-[10px] uppercase tracking-wider text-[#C6D3CA]">
-                                Artist Net Payout
-                              </p>
-
-                              <p className="mt-1 font-display text-2xl">
-                                {money(artistNetPreview)}
-                              </p>
-                            </div>
-
-                            <div>
-                              <p className="text-[10px] uppercase tracking-wider text-[#C6D3CA]">
-                                Platform Share
-                              </p>
-
-                              <p className="mt-1 font-display text-2xl">
-                                {money(platformSharePreview)}
-                              </p>
-                            </div>
-
-                            <div>
-                              <p className="text-[10px] uppercase tracking-wider text-[#C6D3CA]">
-                                Final Website Price
-                              </p>
-
-                              <p className="mt-1 font-display text-2xl">
-                                {money(recommendedListingPrice)}
-                              </p>
-                            </div>
-
+                            <div><p className="text-[10px] uppercase tracking-wider text-[#C6D3CA]">Artist Share ({Math.round(payoutRate*100)}%)</p><p className="mt-1 font-display text-2xl">{money(artistNetPreview)}</p></div>
+                            <div><p className="text-[10px] uppercase tracking-wider text-[#C6D3CA]">Platform Share</p><p className="mt-1 font-display text-2xl">{money(platformSharePreview)}</p></div>
+                            <div><p className="text-[10px] uppercase tracking-wider text-[#C6D3CA]">Suggested Base Price</p><p className="mt-1 font-display text-2xl">{money(suggestedBasePrice)}</p></div>
                           </div>
-
-                          <p className="mt-4 border-t border-white/15 pt-3 text-xs leading-5 text-[#E2E9E3]">
-                            Artist payouts are released 48 hours after the courier marks the shipment “Delivered”.
-                          </p>
-
+                          <p className="mt-4 border-t border-white/15 pt-3 text-xs leading-5 text-[#E2E9E3]">Private estimate only. Never shown on public artwork pages or customer invoices.</p>
                         </div>
-
-                        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-
-                          <p className="text-xs text-muted">
-                            This private estimate uses your studio’s artist share and the delivery buffer.
-                          </p>
-
-                          <button
-                            type="button"
-                            onClick={() => setForm((current) => ({
-                              ...current,
-                              price: String(recommendedListingPrice),
-                            }))}
-                            className="btn-secondary"
-                          >
-                            Apply Recommended Price
-                          </button>
-
-                        </div>
-
+                        <div className="mt-3 flex justify-end"><button type="button" onClick={() => setForm((current) => ({...current, price: String(suggestedBasePrice)}))} className="btn-secondary">Apply Suggested Price</button></div>
                       </section>
 
                       {/* LISTING PRICE */}
@@ -1703,7 +1595,7 @@ export default function ArtistPage() {
                                   </div>
 
                                   <label className="label">
-                                    Add photos (up to {artist?.creator_role === 'Photographer' ? 2 : 4} total)
+                                    Add photos (up to {form.category === 'Photography' ? 2 : 4} total)
 
                                     <input
                                       className="mt-1 block w-full text-xs"
@@ -2052,22 +1944,7 @@ export default function ArtistPage() {
 
                         <div className="mt-5 grid gap-4 md:grid-cols-2">
 
-                          <label className="label">
-                            Creator Discipline
 
-                            <input
-                              className="field mt-1"
-                              value={artist?.creator_role || 'Painter'}
-                              readOnly
-                            />
-
-                            <small className="text-muted">
-                              Discipline is fixed for this studio.
-                              Register a separate Photographer or Painter
-                              profile to use another discipline with
-                              the same email.
-                            </small>
-                          </label>
 
                           <label className="label">
                             Creator / Studio name
@@ -2109,6 +1986,8 @@ export default function ArtistPage() {
                                 whatsapp_number: e.target.value,
                               })}
                               placeholder="10-digit mobile number"
+                              required
+                              inputMode="tel"
                             />
                           </label>
 

@@ -45,6 +45,13 @@ export default function SiteNavbar() {
   const [identity, setIdentity] = useState(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [cartCount, setCartCount] = useState(() => {
+    if (typeof window === 'undefined') return 0;
+    try {
+      const items = JSON.parse(window.localStorage.getItem('artiste_cart_items') || '[]');
+      return Array.isArray(items) ? items.length : 0;
+    } catch { return 0; }
+  });
 
   const menuRef = useRef(null);
   const lastPortalSessionKeyRef = useRef('');
@@ -56,6 +63,12 @@ export default function SiteNavbar() {
       pathname.startsWith('/artists/') &&
       pathname.split('/').filter(Boolean).length === 2
     );
+
+  useEffect(() => {
+    const updateCount = (event) => setCartCount(Math.max(0, Number(event.detail?.count || 0)));
+    window.addEventListener('artiste:cart-count', updateCount);
+    return () => window.removeEventListener('artiste:cart-count', updateCount);
+  }, []);
 
   /* ==========================================
      UNIFIED PORTAL SESSION
@@ -414,6 +427,7 @@ export default function SiteNavbar() {
           >
             <ShoppingBag size={15} strokeWidth={1.8} />
             <span>Cart</span>
+            {cartCount > 0 && <span className="inline-flex min-w-5 h-5 items-center justify-center rounded-full bg-[#173D31] px-1.5 text-[10px] font-bold text-white">{cartCount}</span>}
           </button>
 
           {/* PROFILE MENU */}

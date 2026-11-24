@@ -33,11 +33,6 @@ export async function POST(request) {
     const city = String(form.get('city') || '').trim();
     const pincode = String(form.get('pincode') || '').trim();
     const bio = String(form.get('art_style_bio') || '').trim();
-    const artworkTitle = String(form.get('artwork_title') || '').trim();
-    const artworkMedium = String(form.get('artwork_medium') || '').trim();
-    const artworkDimensions = String(form.get('artwork_dimensions') || '').trim();
-    const framedStatus = form.get('framed_status') === 'Framed' ? 'Framed' : 'Unframed';
-    const desiredPayout = Number(form.get('desired_artist_payout'));
     const photos = form.getAll('photos').filter((file) => file && typeof file.arrayBuffer === 'function' && file.size > 0);
     const agreementValues = Object.fromEntries(AGREEMENT_KEYS.map((key) => [key, form.get(`agreement_${key}`) === 'true']));
     const sentenceCount = bio.split(/[.!?]+/).map((part) => part.trim()).filter(Boolean).length;
@@ -45,10 +40,8 @@ export async function POST(request) {
     if (fullName.length < 2 || fullName.length > 100 || studioName.length < 2 || studioName.length > 100) return NextResponse.json({ error: 'Enter your full name and Artist / Studio name.' }, { status: 400 });
     if (!/^\d{10}$/.test(whatsapp)) return NextResponse.json({ error: 'Enter a valid 10-digit WhatsApp number.' }, { status: 400 });
     if (!city || !/^\d{6}$/.test(pincode)) return NextResponse.json({ error: 'Enter your city and valid 6-digit PIN code.' }, { status: 400 });
-    if (sentenceCount < 3 || sentenceCount > 4 || bio.length > 1200) return NextResponse.json({ error: 'Write a 3–4 sentence bio describing your art style.' }, { status: 400 });
+    if (sentenceCount < 1 || sentenceCount > 8 || bio.length > 1200) return NextResponse.json({ error: 'Write a short bio describing your art practice.' }, { status: 400 });
     if (photos.length < 3 || photos.length > 5) return NextResponse.json({ error: 'Upload 3–5 clear photographs of available original artworks.' }, { status: 400 });
-    if (!artworkTitle || !artworkMedium || !artworkDimensions || artworkTitle.length > 120 || artworkMedium.length > 120 || artworkDimensions.length > 100) return NextResponse.json({ error: 'Complete the artwork title, medium and dimensions.' }, { status: 400 });
-    if (!Number.isFinite(desiredPayout) || desiredPayout <= 0 || desiredPayout > 100000000) return NextResponse.json({ error: 'Enter a valid desired artist payout in rupees.' }, { status: 400 });
     if (AGREEMENT_KEYS.some((key) => !agreementValues[key])) return NextResponse.json({ error: 'All four application agreements are mandatory.' }, { status: 400 });
     for (const photo of photos) {
       if (!IMAGE_TYPES.has(photo.type) || photo.size > 8 * 1024 * 1024) return NextResponse.json({ error: 'Each artwork photo must be JPG, PNG, WEBP or AVIF and no larger than 8 MB.' }, { status: 400 });
@@ -77,11 +70,6 @@ export async function POST(request) {
       city,
       pincode,
       art_style_bio: bio,
-      artwork_title: artworkTitle,
-      artwork_medium: artworkMedium,
-      artwork_dimensions: artworkDimensions,
-      framed_status: framedStatus,
-      desired_artist_payout: desiredPayout,
       artwork_photos: artworkPhotos,
       agreements: agreementValues,
       updated_at: new Date().toISOString(),

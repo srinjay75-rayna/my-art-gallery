@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowUpRight, CheckCircle2, Download, RefreshCw, ShieldCheck
 
 const money = (v) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Number(v || 0));
 const blank = { title: '', medium: '', dimensions: '', price: '', weight_kg: '0.5', length_cm: '', breadth_cm: '', height_cm: '' };
-const tabs = ['Paintings', 'Artists', 'Orders', 'ACCOUNTS & LEDGER'];
+const tabs = ['Paintings', 'Artists', 'Founding Applications', 'Orders', 'ACCOUNTS & LEDGER'];
 const dash = (v) => v || '—';
 const roleName = (value) => value === 'Photographer' ? 'Photographer' : 'Artist';
 const roleRate = (_value, isFoundingArtist = false) => isFoundingArtist ? 0.20 : 0.30;
@@ -50,6 +50,7 @@ export default function AdminDashboard() {
   const [artists, setArtists] = useState([]);
   const [orders, setOrders] = useState([]);
   const [payouts, setPayouts] = useState([]);
+  const [foundingApplications, setFoundingApplications] = useState([]);
   const [form, setForm] = useState(blank);
   const [photo, setPhoto] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -63,7 +64,8 @@ export default function AdminDashboard() {
     return data;
   };
   const load = useCallback(async () => {
-    const [p, o] = await Promise.all([request('/api/admin/paintings'), request('/api/admin/overview')]);
+    const [p, o, fa] = await Promise.all([request('/api/admin/paintings'), request('/api/admin/overview'), request('/api/admin/artist-applications')]);
+    setFoundingApplications(fa.applications || []);
     setPaintings(p.paintings || []);
     setArtists(o.artists || []);
     setOrders(o.orders || []);
@@ -71,6 +73,18 @@ export default function AdminDashboard() {
   }, []);
 
   useEffect(() => { load().catch((e) => setError(e.message)); }, [load]);
+  useEffect(() => {
+    let active = true;
+    const refreshPending = async () => {
+      try {
+        const response = await fetch('/api/admin/artist-applications', { cache: 'no-store' });
+        const data = await response.json().catch(() => ({}));
+        if (active && response.ok) setFoundingApplications(data.applications || []);
+      } catch {}
+    };
+    const timer = setInterval(refreshPending, 30000);
+    return () => { active = false; clearInterval(timer); };
+  }, []);
 
   const accountsLedger = makeAccountsLedger(payouts, orders, artists);
 
@@ -136,6 +150,15 @@ export default function AdminDashboard() {
     finally { setBusy(false); }
   }
 
+  async function reviewFoundingApplication(application, decision) {
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const result = await request('/api/admin/artist-applications', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: application.id, decision }) });
+      setNotice(result.message || 'Application updated.');
+      await load();
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+
   return (
     <main className="paper-grain min-h-screen px-5 py-8 md:px-10">
       <div className="mx-auto max-w-7xl">
@@ -144,7 +167,7 @@ export default function AdminDashboard() {
           <div className="flex items-center gap-4"><button onClick={logout} className="text-xs font-bold uppercase tracking-wider text-clay">Sign out</button><a href="/" className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-clay"><ArrowLeft size={13}/> View gallery</a></div>
         </header>
         <div className="mb-7 flex flex-wrap gap-2">
-          {tabs.map((t) => <button key={t} onClick={() => setTab(t)} className={`rounded-full px-5 py-2 text-xs font-bold uppercase tracking-wider ${tab === t ? 'bg-ink text-white' : 'border border-[#d9cfc1] text-ink'}`}>{t}</button>)}
+           {tabs.map((t) => <button key={t} onClick={() => setTab(t)} className={`rounded-full px-5 py-2 text-xs font-bold uppercase tracking-wider ${tab === t ? 'bg-ink text-white' : 'border border-[#d9cfc1] text-ink'}`}>{t}{t === 'Founding Applications' && foundingApplications.length > 0 ? ` · ${foundingApplications.length}` : ''}</button>)}
           <button onClick={() => load().catch((e) => setError(e.message))} className="ml-auto inline-flex items-center gap-2 rounded-full border border-[#d9cfc1] px-4 py-2 text-xs"><RefreshCw size={13}/> Refresh</button>
         </div>
         {notice && <p className="mb-4 rounded-xl bg-green-50 p-3 text-sm text-green-800">{notice}</p>}
@@ -178,6 +201,19 @@ export default function AdminDashboard() {
           {!artists.length && <p className="rounded-2xl border border-dashed p-10 text-center text-muted">No Artist profiles yet.</p>}
         </section>}
 
+
+
+        {tab === 'Founding Applications' && <section>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-display text-3xl">Founding Artist review queue</h2><p className="mt-1 text-xs text-muted">Pending applications · Approving grants the 80% artist share.</p></div><span className="rounded-full bg-[#173D31] px-4 py-2 text-xs font-bold text-white">{foundingApplications.length} pending</span></div>
+          <div className="grid gap-4">
+            {foundingApplications.map((application) => <article key={application.id} className="rounded-2xl border border-[#D9C6A6] bg-[#F3ECE1] p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-display text-2xl">{application.studio_name}</h3><p className="text-xs text-muted">{application.full_name} · {application.city} – {application.pincode}</p><p className="mt-1 text-xs">{application.whatsapp_number}{application.instagram_handle ? ` · @${application.instagram_handle}` : ''}</p><p className="mt-3 max-w-3xl whitespace-pre-wrap text-sm">{application.art_style_bio}</p></div><span className="pill">{application.application_status}</span></div>
+              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">{(Array.isArray(application.artwork_photos) ? application.artwork_photos : []).map((photo, index) => <a key={`${photo}-${index}`} href={photo} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-[#D9C6A6]"><img src={photo} alt={`Portfolio photo ${index + 1}`} className="h-36 w-full object-cover"/></a>)}</div>
+              <div className="mt-4 flex flex-wrap gap-2"><button disabled={busy} className="btn-primary" onClick={() => reviewFoundingApplication(application, 'approve')}>Approve as Founding Artist (80% Share)</button><button disabled={busy} className="action-btn danger" onClick={() => reviewFoundingApplication(application, 'decline')}>Decline</button></div>
+            </article>)}
+            {!foundingApplications.length && <p className="rounded-2xl border border-dashed p-10 text-center text-muted">No pending Founding Artist applications.</p>}
+          </div>
+        </section>}
         {tab === 'Orders' && <section>
           <div className="mb-4 flex flex-wrap items-end justify-between gap-3"><div><h2 className="font-display text-3xl">Customer orders <span className="text-muted">({orders.length})</span></h2><p className="mt-1 text-xs text-muted">Private owner ledger: Customer details, dispatch origins, courier records and Artist payout information.</p></div><span className="pill">Owner-only financial ledger</span></div>
           <div className="grid gap-4">

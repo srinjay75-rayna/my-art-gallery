@@ -42,7 +42,7 @@ export async function GET(request) {
       ledger = payouts || [];
       payoutAccount = payout || null;
 
-      const profileComplete = Boolean(artist.artist_name && artist.bio && artist.pickup_address && artist.pickup_phone && artist.pickup_landmark && artist.pickup_locality && artist.city && artist.state && /^\d{6}$/.test(String(artist.pickup_pincode || '')));
+      const profileComplete = Boolean(artist.artist_name && artist.bio && artist.whatsapp_number && artist.email && artist.pickup_address && artist.pickup_phone && artist.pickup_locality && artist.city && artist.state && /^\d{6}$/.test(String(artist.pickup_pincode || '')));
       // Automatically activate complete, IFSC-verified studios. The explicit
       // owner-controlled is_suspended flag always takes precedence.
       if (profileComplete && !artist.is_suspended && !artist.is_approved) {
@@ -65,10 +65,6 @@ export async function POST(request) {
     const form = await request.formData();
     const artistName = String(form.get('artist_name') || '').trim();
     const creatorRole = user.user_metadata?.creator_role === 'Photographer' ? 'Photographer' : 'Painter';
-    const submittedCreatorRole = form.get('creator_role') === 'Photographer' ? 'Photographer' : 'Painter';
-    if (submittedCreatorRole !== creatorRole) {
-      return NextResponse.json({ error: 'The discipline selected at sign-up is fixed for this Creator studio. Create a separate portal profile to register another discipline.' }, { status: 403 });
-    }
     const bio = String(form.get('bio') || '').trim();
     const city = String(form.get('city') || '').trim();
     const state = String(form.get('state') || '').trim();
@@ -80,8 +76,9 @@ export async function POST(request) {
     const pickupPincode = String(form.get('pickup_pincode') || '').trim();
     const pickupLocation = String(form.get('pickup_location') || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary').trim();
     const photo = form.get('photo');
-    if (!artistName || artistName.length > 100 || !bio || bio.length > 1200 || !city || !state || !pickupAddress || !pickupContactName || !/^\d{10}$/.test(pickupPhoneDigits) || !pickupLandmark || !pickupLocality || !/^\d{6}$/.test(pickupPincode) || !pickupLocation) {
-      return NextResponse.json({ error: 'Complete your Artist name, bio, pickup contact name, +91 mobile number, street address, landmark, locality, city, State / UT and valid 6-digit pickup PIN code.' }, { status: 400 });
+    const whatsappDigits = normaliseIndianPhone(form.get('whatsapp_number'));
+    if (!artistName || artistName.length > 100 || !bio || bio.length > 1200 || !/^\d{10}$/.test(whatsappDigits) || !user.email || !city || !state || !pickupAddress || !pickupContactName || !/^\d{10}$/.test(pickupPhoneDigits) || !pickupLocality || !/^\d{6}$/.test(pickupPincode) || !pickupLocation) {
+      return NextResponse.json({ error: 'Complete your Creator / Studio name, WhatsApp number, verified email, Artist Bio, pickup contact name and mobile number, street address, locality, city, State / UT and valid 6-digit pickup PIN code. Landmark is optional.' }, { status: 400 });
     }
     const supabase = requireServiceRole();
     let { data: existing, error: existingError } = await supabase.from('artists').select('id,profile_photo_url,avatar_url,is_approved,is_suspended,creator_role').eq('user_id', user.id).eq('creator_role', creatorRole).maybeSingle();
@@ -106,7 +103,7 @@ export async function POST(request) {
       user_id: user.id,
       email: String(user.email || '').toLowerCase(),
       phone: `+91${pickupPhoneDigits}`,
-      whatsapp_number: String(form.get('whatsapp_number') || pickupPhoneDigits).trim(),
+      whatsapp_number: `+91${whatsappDigits}`,
       instagram_handle: String(form.get('instagram_handle') || '').trim().replace(/^@/, ''),
       artist_name: artistName,
       creator_role: creatorRole,
@@ -118,7 +115,7 @@ export async function POST(request) {
       pickup_address: pickupAddress,
       pickup_contact_name: pickupContactName,
       pickup_phone: `+91${pickupPhoneDigits}`,
-      pickup_landmark: pickupLandmark,
+      pickup_landmark: pickupLandmark || '',
       pickup_locality: pickupLocality,
       pickup_pincode: pickupPincode,
       pickup_location: pickupLocation,

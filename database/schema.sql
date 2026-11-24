@@ -1240,17 +1240,22 @@ create table if not exists public.artist_applications (
   city text not null,
   pincode text not null,
   art_style_bio text not null,
-  artwork_title text not null,
-  artwork_medium text not null,
-  artwork_dimensions text not null,
-  framed_status text not null default 'Unframed',
-  desired_artist_payout numeric(12,2) not null check (desired_artist_payout > 0),
+  artwork_title text,
+  artwork_medium text,
+  artwork_dimensions text,
+  framed_status text default 'Unframed',
+  desired_artist_payout numeric(12,2),
   artwork_photos jsonb not null default '[]'::jsonb,
   agreements jsonb not null,
-  application_status text not null default 'Submitted',
+  application_status text not null default 'Pending',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+alter table public.artist_applications alter column artwork_title drop not null;
+alter table public.artist_applications alter column artwork_medium drop not null;
+alter table public.artist_applications alter column artwork_dimensions drop not null;
+alter table public.artist_applications alter column desired_artist_payout drop not null;
+alter table public.artist_applications alter column application_status set default 'Pending';
 create index if not exists artist_applications_artist_idx
   on public.artist_applications(artist_id, created_at desc);
 create index if not exists artist_applications_user_idx
