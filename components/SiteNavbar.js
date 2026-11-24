@@ -47,6 +47,7 @@ export default function SiteNavbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const menuRef = useRef(null);
+  const lastPortalSessionKeyRef = useRef('');
 
   const isGallerySurface =
     pathname === '/' ||
@@ -59,13 +60,13 @@ export default function SiteNavbar() {
   /* ==========================================
      UNIFIED PORTAL SESSION
 
-     - Reads the active Artiste portal session on mount.
+     - Reads active session on mount.
      - Supports Artist and Customer accounts.
      - Listens to same-tab authentication events.
      - Listens to cross-tab storage events.
      - Displays identity immediately from session metadata.
-     - Enriches name/avatar using the respective profile API.
-     - Avoids stale requests overwriting a newer identity.
+     - Enriches identity using the relevant profile API.
+     - Prevents duplicate hydration for the same session.
   ========================================== */
 
   useEffect(() => {
@@ -122,14 +123,10 @@ export default function SiteNavbar() {
 
       if (!active) return;
 
-      // Display the correct account menu immediately;
-      // enrich its name/photo below.
+      // Render the active identity immediately.
       setIdentity(initialIdentity);
 
-      if (!initialIdentity) {
-        setProfileOpen(false);
-        return;
-      }
+      if (!initialIdentity) return;
 
       try {
         const endpoint =
@@ -187,26 +184,45 @@ export default function SiteNavbar() {
           }
         }
 
+        // A previous request must never overwrite a newer login.
         if (active && currentRevision === revision) {
           setIdentity(resolvedIdentity);
         }
       } catch {
-        // Keep the session-metadata identity already rendered above.
+        // Keep the already-rendered session metadata identity.
       }
     }
 
     const syncPortalSession = () => {
       if (!active) return;
 
-      const currentSession = getPortalSession();
+      const session = getPortalSession();
+      const metadata = session?.user?.user_metadata || {};
 
-      hydratePortalIdentity(currentSession);
+      const sessionKey = session?.access_token
+        ? JSON.stringify([
+            session.access_token,
+            session.user?.id || '',
+            session.accountType || metadata.account_type || '',
+            session.creatorRole || metadata.creator_role || '',
+            metadata.artist_name || '',
+            metadata.full_name || metadata.name || '',
+            metadata.avatar_url || metadata.picture || '',
+          ])
+        : 'signed-out';
+
+      // Ignore duplicate notifications for the same session.
+      if (lastPortalSessionKeyRef.current === sessionKey) return;
+
+      lastPortalSessionKeyRef.current = sessionKey;
+
+      hydratePortalIdentity(session);
     };
 
-    // Read the existing session immediately on mount.
+    // Read current session on mount.
     syncPortalSession();
 
-    // Subscribe to same-tab and cross-tab session changes.
+    // Listen for login/logout and cross-tab session updates.
     const unsubscribe = subscribePortalSession(syncPortalSession);
 
     return () => {
@@ -374,8 +390,6 @@ export default function SiteNavbar() {
 
         <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
 
-          {/* MOBILE NAVIGATION BUTTON */}
-
           <button
             type="button"
             onClick={() => setMobileOpen((open) => !open)}
@@ -393,18 +407,12 @@ export default function SiteNavbar() {
             }
           </button>
 
-          {/* CART BUTTON */}
-
           <button
             type="button"
             onClick={openCart}
             className="inline-flex items-center gap-2 rounded-full border border-[#C69C6D]/70 bg-[#F3ECE1] px-3.5 py-2.5 text-[9px] font-bold uppercase tracking-[.13em] text-[#263832] transition hover:-translate-y-0.5 hover:border-[#B85D3B] hover:text-[#B85D3B] sm:px-4"
           >
-            <ShoppingBag
-              size={15}
-              strokeWidth={1.8}
-            />
-
+            <ShoppingBag size={15} strokeWidth={1.8} />
             <span>Cart</span>
           </button>
 
@@ -450,8 +458,6 @@ export default function SiteNavbar() {
                 {identity ? (
                   <>
 
-                    {/* ACCOUNT IDENTITY */}
-
                     <div className="flex items-center gap-3 border-b border-[#D9C6A6]/70 px-4 pb-3 pt-2">
 
                       <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#C69C6D] bg-[#F3ECE1]">
@@ -490,8 +496,6 @@ export default function SiteNavbar() {
 
                     </div>
 
-                    {/* ACCOUNT-SPECIFIC MENU LINKS */}
-
                     <div className="py-1">
 
                       {(identity.kind === 'creator'
@@ -515,8 +519,6 @@ export default function SiteNavbar() {
                       ))}
 
                     </div>
-
-                    {/* LOGOUT */}
 
                     <button
                       type="button"
@@ -566,8 +568,6 @@ export default function SiteNavbar() {
 
         </div>
       </div>
-
-      {/* MOBILE NAVIGATION MENU */}
 
       {mobileOpen && (
         <nav
