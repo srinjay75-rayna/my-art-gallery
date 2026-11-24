@@ -89,6 +89,8 @@ export async function POST(request) {
           is_founding_artist: Boolean(artist.is_founding_artist),
           pickup_pincode: artist.pickup_pincode,
           pickup_location: artist.pickup_location || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary',
+          pickup_city: artist.city || '',
+          pickup_state: artist.state || '',
           dispatchSnapshot: {
             artist_id: artist.id,
             artist_name: artist.artist_name,
@@ -120,11 +122,11 @@ export async function POST(request) {
       const pickupPincode = legacy?.pickup_pincode || process.env.PICKUP_PINCODE || '';
       const pickupLocation = legacy?.pickup_location || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary';
       if (!/^\d{6}$/.test(String(pickupPincode))) throw new Error(`No valid pickup PIN code is configured for “${painting.title}”.`);
-      return { ...painting, creator_role: 'Painter', artist_name: painting.artist_name || 'Artiste Studio', pickup_pincode: pickupPincode, pickup_location: pickupLocation, dispatchSnapshot: { artist_id: null, artist_name: 'Artiste Studio', pickup_pincode: pickupPincode, pickup_location: pickupLocation, payout_info: null } };
+      return { ...painting, creator_role: 'Painter', artist_name: painting.artist_name || 'Artiste Studio', pickup_pincode: pickupPincode, pickup_location: pickupLocation, dispatchSnapshot: { artist_id: null, artist_name: 'Artiste Studio', pickup_city: process.env.PICKUP_CITY || '', pickup_state: process.env.PICKUP_STATE || '', pickup_pincode: pickupPincode, pickup_location: pickupLocation, payout_info: null } };
     });
 
     const groups = groupPaintingsByPickup(enrichedPaintings);
-    const liveRateGroups = await getCourierRatesByPickup(enrichedPaintings, String(profile.pincode));
+    const liveRateGroups = await getCourierRatesByPickup(enrichedPaintings, String(profile.pincode), { city: profile.city, state: profile.state });
     const requestedSelections = Array.isArray(body.couriers) ? body.couriers : [];
     if (requestedSelections.length !== groups.length) return NextResponse.json({ error: 'Select one live courier for every Artist pickup location.' }, { status: 400 });
 
@@ -201,7 +203,8 @@ export async function POST(request) {
     });
     const platformFee = money(orderItems.reduce((sum, item) => sum + item.platform_fee, 0));
     const artistPayout = money(orderItems.reduce((sum, item) => sum + item.artist_payout, 0));
-    const totalAmount = artworkPrice;
+    // Courier delivery is a separate customer-paid amount; artist payouts remain based on artworkPrice only.
+    const totalAmount = money(artworkPrice + shippingAmount);
     const amountPaise = Math.round(totalAmount * 100);
     if (!Number.isSafeInteger(amountPaise) || amountPaise < 100 || amountPaise > 100000000) return NextResponse.json({ error: 'The payable amount is invalid.' }, { status: 400 });
 
@@ -238,10 +241,10 @@ export async function POST(request) {
       state: profile.state,
       pincode: profile.pincode,
       artwork_price: artworkPrice,
-      shipping_price: 0,
-      shipping_amount: 0,
+      shipping_price: shippingAmount,
+      shipping_amount: shippingAmount,
       courier_cost: shippingAmount,
-      shipping_included: true,
+      shipping_included: false,
       total_amount: totalAmount,
       platform_fee: platformFee,
       artist_payout: artistPayout,
@@ -276,7 +279,7 @@ export async function POST(request) {
       currency: 'INR',
       keyId,
       artworkPrice,
-      shippingAmount: 0,
+      shippingAmount,
       totalAmount,
       shipmentCount: shipmentRows.length,
     });

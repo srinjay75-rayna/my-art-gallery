@@ -15,6 +15,8 @@ export async function POST(request) {
     const rawItems = Array.isArray(body.items) ? body.items.slice(0, 21) : [];
     const ids = [...new Set(rawItems.map((item) => String(item?.paintingId || item?.id || '').trim()))];
     const deliveryPincode = String(body.deliveryPincode || '').trim();
+    const deliveryCity = String(body.deliveryCity || '').trim();
+    const deliveryState = String(body.deliveryState || '').trim();
     if (!ids.length || ids.length > 20 || ids.some((id) => !/^[0-9a-f-]{20,40}$/i.test(id))) return NextResponse.json({ error: 'Your cart is empty or contains an invalid artwork.' }, { status: 400 });
     if (!/^\d{6}$/.test(deliveryPincode)) return NextResponse.json({ error: 'Enter a valid 6-digit delivery PIN code.' }, { status: 400 });
 
@@ -27,7 +29,7 @@ export async function POST(request) {
 
     const artistIds = [...new Set(paintings.map((painting) => painting.artist_id).filter(Boolean))];
     const [{ data: artists, error: artistError }, { data: accounts, error: accountError }, { data: legacyOrigins, error: originError }] = await Promise.all([
-      artistIds.length ? supabase.from('artists').select('id,artist_name,is_approved,pickup_pincode,pickup_location').in('id', artistIds) : Promise.resolve({ data: [], error: null }),
+      artistIds.length ? supabase.from('artists').select('id,artist_name,is_approved,pickup_pincode,pickup_location,city,state').in('id', artistIds) : Promise.resolve({ data: [], error: null }),
       artistIds.length ? supabase.from('artist_payout_accounts').select('artist_id,verified_at').in('artist_id', artistIds) : Promise.resolve({ data: [], error: null }),
       supabase.from('painting_shipping_origins').select('painting_id,pickup_pincode,pickup_location').in('painting_id', ids),
     ]);
@@ -45,13 +47,13 @@ export async function POST(request) {
         const artist = artistMap.get(painting.artist_id);
         if (!artist?.is_approved) throw new Error(`The Artist profile for “${painting.title}” is not approved.`);
         if (!accountMap.get(painting.artist_id)?.verified_at) throw new Error(`The Artist “${artist.artist_name}” must complete verified payout details before checkout.`);
-        return { ...painting, weight_kg: actualWeight, artist_name: artist.artist_name, pickup_pincode: artist.pickup_pincode, pickup_location: artist.pickup_location || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary' };
+        return { ...painting, weight_kg: actualWeight, artist_name: artist.artist_name, pickup_pincode: artist.pickup_pincode, pickup_location: artist.pickup_location || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary', pickup_city: artist.city || '', pickup_state: artist.state || '' };
       }
       const origin = originMap.get(painting.id);
       return { ...painting, weight_kg: actualWeight, pickup_pincode: origin?.pickup_pincode || process.env.PICKUP_PINCODE, pickup_location: origin?.pickup_location || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary' };
     });
 
-    const groups = await getCourierRatesByPickup(enriched, deliveryPincode);
+    const groups = await getCourierRatesByPickup(enriched, deliveryPincode, { city: deliveryCity, state: deliveryState });
     if (groups.some((group) => !group.couriers.length)) {
       const unavailable = groups.filter((group) => !group.couriers.length).map((group) => group.artistName);
       return NextResponse.json({ error: `No courier options are available from: ${unavailable.join(', ')}.`, groups }, { status: 409 });

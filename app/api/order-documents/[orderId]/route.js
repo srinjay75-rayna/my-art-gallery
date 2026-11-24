@@ -116,7 +116,9 @@ export async function GET(request, { params }) {
 
     const shipmentsForDisplay = shipments || [];
     const computedArtworkAmount = Number(order.artwork_price || 0) || safeItems.reduce((sum, item) => sum + Number(item.price || 0), 0);
-    const computedShippingAmount = Number(order.shipping_amount || order.shipping_price || 0) || shipmentsForDisplay.reduce((sum, row) => sum + Number(row.shipping_amount || 0), 0);
+    const computedShippingAmount = order.shipping_included === true
+      ? 0
+      : Number(order.shipping_amount || order.shipping_price || 0) || shipmentsForDisplay.reduce((sum, row) => sum + Number(row.shipping_amount || 0), 0);
     const computedTotalAmount = Number(order.total_amount || 0) || Number(order.amount_paise || 0) / 100 || (computedArtworkAmount + computedShippingAmount);
 
     const safeOrder = {
@@ -138,6 +140,7 @@ export async function GET(request, { params }) {
       pincode: order.pincode || order.buyer_pincode || '',
       artwork_price: computedArtworkAmount,
       shipping_amount: computedShippingAmount,
+      shipping_included: order.shipping_included === true,
       total_amount: computedTotalAmount,
       courier_name: order.courier_name || '',
       shipments: (shipments || []).map((row) => ({

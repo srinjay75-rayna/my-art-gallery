@@ -85,7 +85,7 @@ export default function OrderDocument({ mode = 'invoice' }) {
   const displayItems = isPackingSlip && role === 'artist' && shipments[0]?.items?.length ? shipments[0].items : items;
   const displayShipping = shipments.reduce((sum, s) => sum + Number(s.shipping_amount || 0), 0);
   const shippingIncluded = order.shipping_included === true;
-  const invoiceShipping = shippingIncluded ? 0 : Number(order.shipping_amount ?? displayShipping);
+  const invoiceShipping = shippingIncluded ? 0 : Number(order.shipping_amount || displayShipping || order.shipping_price || 0);
   const invoiceTotal = Number(order.total_amount || (Number(order.artwork_price || 0) + invoiceShipping));
   const packing = shipments[0] || null;
 
@@ -151,11 +151,11 @@ export default function OrderDocument({ mode = 'invoice' }) {
           </tbody>
           <tfoot>
             <tr className="border-b border-[#e7e0d7]">
-              <td className="p-3" colSpan="5">Artwork subtotal</td>
+              <td className="p-3" colSpan="5">Artwork Price</td>
               <td className="p-3 text-right">{amountInr(order.artwork_price)}</td>
             </tr>
             <tr className="border-b border-[#e7e0d7]">
-              <td className="p-3" colSpan="5">{shippingIncluded ? 'Insured Doorstep Delivery (included)' : 'Shipping &amp; Handling Charges (₹)'}</td>
+              <td className="p-3" colSpan="5">Insured Courier Delivery</td>
               <td className="p-3 text-right">{shippingIncluded ? 'Included' : amountInr(invoiceShipping)}</td>
             </tr>
             <tr className="border-b border-[#e7e0d7]">

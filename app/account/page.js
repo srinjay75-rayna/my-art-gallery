@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -49,18 +49,58 @@ export default function AccountPage() {
   const [editingAddress, setEditingAddress] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [scrollRequest, setScrollRequest] = useState(0);
+  const pendingScrollTargetRef = useRef('');
+
+  const normaliseAccountTab = (value) => {
+    const requested = String(value || '').toLowerCase();
+    if (requested === 'orders' || requested === 'my orders') return 'My Orders';
+    if (requested === 'details' || requested === 'my details' || requested === 'profile') return 'My Details';
+    return '';
+  };
+
+  const applyAccountTab = (value, shouldScroll = true) => {
+    const nextTab = normaliseAccountTab(value);
+    if (!nextTab) return;
+    if (shouldScroll) {
+      pendingScrollTargetRef.current = nextTab === 'My Orders' ? 'orders' : 'details';
+      setScrollRequest((current) => current + 1);
+    }
+    setTab(nextTab);
+  };
 
   useEffect(() => {
-    const requestedTab = new URLSearchParams(
-      window.location.search
-    ).get('tab');
+    const readLocationTab = () => {
+      const hashTab = normaliseAccountTab(window.location.hash.replace(/^#/, ''));
+      const queryTab = normaliseAccountTab(new URLSearchParams(window.location.search).get('tab'));
+      const requestedTab = hashTab || queryTab;
+      if (requestedTab) applyAccountTab(requestedTab, true);
+    };
 
-    if (requestedTab === 'details') {
-      setTab('My Details');
-    } else if (requestedTab === 'orders') {
-      setTab('My Orders');
-    }
+    const handleAccountTab = (event) => {
+      applyAccountTab(event.detail?.tab || event.detail?.section || '', true);
+    };
+
+    readLocationTab();
+    window.addEventListener('hashchange', readLocationTab);
+    window.addEventListener('artiste:account-tab', handleAccountTab);
+    return () => {
+      window.removeEventListener('hashchange', readLocationTab);
+      window.removeEventListener('artiste:account-tab', handleAccountTab);
+    };
   }, []);
+
+  useEffect(() => {
+    const targetId = pendingScrollTargetRef.current;
+    if (!targetId || !session?.user?.id) return;
+    pendingScrollTargetRef.current = '';
+    const frame = window.requestAnimationFrame(() => {
+      window.setTimeout(() => {
+        document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 60);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [tab, session?.user?.id, scrollRequest]);
 
   useEffect(() => {
     let active = true;
@@ -313,7 +353,7 @@ export default function AccountPage() {
             </div>
 
             {tab === 'My Orders' ? (
-              <section className="mt-5 grid gap-4">
+              <section id="orders" className="mt-5 grid scroll-mt-28 gap-4">
                 {orders.map((order) => (
                   <article
                     key={order.id}
@@ -491,7 +531,7 @@ export default function AccountPage() {
             ) : (
               <section
                 id="details"
-                className="mt-5 max-w-3xl rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] p-6 shadow-soft"
+                className="mt-5 max-w-3xl scroll-mt-28 rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] p-6 shadow-soft"
               >
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>

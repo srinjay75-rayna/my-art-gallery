@@ -386,23 +386,24 @@ export default function ArtistPage() {
   ========================================== */
 
   useEffect(() => {
-    if (
-      !authLoading &&
-      artist &&
-      typeof window !== 'undefined' &&
-      window.location.hash
-    ) {
-      const targetId = window.location.hash.slice(1);
+    if (typeof window === 'undefined') return undefined;
+
+    const scrollToArtistHash = () => {
+      if (authLoading || !artist) return;
+      const targetId = window.location.hash.replace(/^#/, '');
+      if (!['profile', 'earnings'].includes(targetId)) return;
 
       window.requestAnimationFrame(() => {
-        document
-          .getElementById(targetId)
-          ?.scrollIntoView({
-            behavior: 'smooth',
-            block: 'start',
-          });
+        document.getElementById(targetId)?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
       });
-    }
+    };
+
+    window.addEventListener('hashchange', scrollToArtistHash);
+    scrollToArtistHash();
+    return () => window.removeEventListener('hashchange', scrollToArtistHash);
   }, [authLoading, artist]);
 
   /* ==========================================

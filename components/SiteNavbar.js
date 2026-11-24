@@ -65,9 +65,31 @@ export default function SiteNavbar() {
     );
 
   useEffect(() => {
-    const updateCount = (event) => setCartCount(Math.max(0, Number(event.detail?.count || 0)));
+    const readStoredCount = () => {
+      try {
+        const items = JSON.parse(window.localStorage.getItem('artiste_cart_items') || '[]');
+        setCartCount(Array.isArray(items) ? items.length : 0);
+      } catch {
+        setCartCount(0);
+      }
+    };
+    const updateCount = (event) => {
+      const count = Number(event.detail?.count);
+      if (Number.isFinite(count)) setCartCount(Math.max(0, count));
+      else readStoredCount();
+    };
+    const handleStorage = (event) => {
+      if (event.key === 'artiste_cart_items' || event.key === null) readStoredCount();
+    };
+
+    // Keep the badge correct after hydration and when another browser tab edits the cart.
+    readStoredCount();
     window.addEventListener('artiste:cart-count', updateCount);
-    return () => window.removeEventListener('artiste:cart-count', updateCount);
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      window.removeEventListener('artiste:cart-count', updateCount);
+      window.removeEventListener('storage', handleStorage);
+    };
   }, []);
 
   /* ==========================================
@@ -334,17 +356,17 @@ export default function SiteNavbar() {
   const customerLinks = [
     {
       label: 'My Profile',
-      href: '/account',
+      href: '/account#details',
       icon: UserRound,
     },
     {
       label: 'Edit Details',
-      href: '/account?tab=details',
+      href: '/account#details',
       icon: MapPin,
     },
     {
       label: 'My Orders',
-      href: '/account?tab=orders',
+      href: '/account#orders',
       icon: FileText,
     },
   ];
@@ -520,7 +542,30 @@ export default function SiteNavbar() {
                           key={label}
                           href={href}
                           role="menuitem"
-                          onClick={() => setProfileOpen(false)}
+                          onClick={(event) => {
+                            setProfileOpen(false);
+                            setMobileOpen(false);
+                            if (pathname === '/account') {
+                              const targetTab = href.endsWith('#orders') ? 'orders' : 'details';
+                              event.preventDefault();
+                              const nextUrl = `/account${window.location.search}#${targetTab}`;
+                              if (window.location.pathname + window.location.search + window.location.hash !== nextUrl) {
+                                window.history.replaceState(window.history.state, '', nextUrl);
+                              }
+                              window.dispatchEvent(new CustomEvent('artiste:account-tab', { detail: { tab: targetTab } }));
+                            } else if (pathname === '/artist' && href.startsWith('/artist#')) {
+                              const targetId = href.split('#')[1];
+                              event.preventDefault();
+                              if (window.location.hash !== `#${targetId}`) {
+                                window.location.hash = targetId;
+                              } else {
+                                document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                              }
+                            } else if (pathname === '/artist' && href === '/artist') {
+                              event.preventDefault();
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+                            }
+                          }}
                           className="flex items-center gap-3 px-4 py-3 text-xs font-medium text-[#45534B] transition hover:bg-[#F3ECE1] hover:text-[#B85D3B]"
                         >
                           <Icon
