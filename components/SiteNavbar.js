@@ -45,13 +45,7 @@ export default function SiteNavbar() {
   const [identity, setIdentity] = useState(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [cartCount, setCartCount] = useState(() => {
-    if (typeof window === 'undefined') return 0;
-    try {
-      const items = JSON.parse(window.localStorage.getItem('artiste_cart_items') || '[]');
-      return Array.isArray(items) ? items.length : 0;
-    } catch { return 0; }
-  });
+  const [cartCount, setCartCount] = useState(0);
 
   const menuRef = useRef(null);
   const lastPortalSessionKeyRef = useRef('');
@@ -66,27 +60,38 @@ export default function SiteNavbar() {
 
   useEffect(() => {
     const readStoredCount = () => {
+      const customer = getPortalSession('customer');
+      const userId = customer?.user?.id;
+      if (!userId) {
+        setCartCount(0);
+        return;
+      }
       try {
-        const items = JSON.parse(window.localStorage.getItem('artiste_cart_items') || '[]');
+        const items = JSON.parse(window.localStorage.getItem(`artiste_cart_${userId}`) || '[]');
         setCartCount(Array.isArray(items) ? items.length : 0);
       } catch {
         setCartCount(0);
       }
     };
     const updateCount = (event) => {
+      if (event.detail?.loggedOut) {
+        setCartCount(0);
+        return;
+      }
       const count = Number(event.detail?.count);
       if (Number.isFinite(count)) setCartCount(Math.max(0, count));
       else readStoredCount();
     };
     const handleStorage = (event) => {
-      if (event.key === 'artiste_cart_items' || event.key === null) readStoredCount();
+      if (event.key?.startsWith('artiste_cart_') || event.key === null) readStoredCount();
     };
 
-    // Keep the badge correct after hydration and when another browser tab edits the cart.
     readStoredCount();
+    const unsubscribeSession = subscribePortalSession(readStoredCount);
     window.addEventListener('artiste:cart-count', updateCount);
     window.addEventListener('storage', handleStorage);
     return () => {
+      unsubscribeSession();
       window.removeEventListener('artiste:cart-count', updateCount);
       window.removeEventListener('storage', handleStorage);
     };

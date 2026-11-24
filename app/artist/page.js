@@ -78,6 +78,7 @@ export default function ArtistPage() {
   const [authLoading, setAuthLoading] = useState(true);
   const [profileChecking, setProfileChecking] = useState(false);
   const [artist, setArtist] = useState(null);
+  const [application, setApplication] = useState(null);
 
   const [profile, setProfile] = useState({
     artist_name: '',
@@ -160,6 +161,7 @@ export default function ArtistPage() {
 
       if (!value) {
         setArtist(null);
+        setApplication(null);
         setArtworks([]);
         setLedger([]);
         setPayoutAccount(null);
@@ -250,6 +252,7 @@ export default function ArtistPage() {
       if (!shouldApply()) return;
 
       setArtist(data.artist || null);
+      setApplication(data.application || null);
       setLedger(data.ledger || []);
 
       setForm((current) => current.title || current.medium || current.price
@@ -353,6 +356,7 @@ export default function ArtistPage() {
       studioLoadKeyRef.current = '';
 
       setArtist(null);
+      setApplication(null);
       setArtworks([]);
       setLedger([]);
       setPayoutAccount(null);
@@ -864,6 +868,11 @@ export default function ArtistPage() {
   ].filter(Boolean).join(', ');
 
   const isSuspended = Boolean(artist?.is_suspended);
+  const foundingAccessApproved = Boolean(
+    artist?.is_founding_artist === true ||
+    String(application?.status || application?.application_status || '').trim().toLowerCase() === 'approved'
+  );
+  const foundingLockMessage = 'Locked — This section will only open once Artiste approves your Founding Artist application.';
 
   /* ==========================================
      AUTHENTICATION LOADING SCREEN
@@ -1037,13 +1046,15 @@ export default function ArtistPage() {
                       fine-art photography directly to the Artiste gallery.
                     </p>
 
-                    {isSuspended && (
-                      <p className="mt-4 rounded-xl bg-red-50 p-3 text-xs text-red-800">
-                        Publishing is disabled while your account is suspended.
-                      </p>
-                    )}
+                    {foundingAccessApproved ? (
+                      <>
+                        {isSuspended && (
+                          <p className="mt-4 rounded-xl bg-red-50 p-3 text-xs text-red-800">
+                            Publishing is disabled while your account is suspended.
+                          </p>
+                        )}
 
-                    <form
+                        <form
                       onSubmit={uploadArtwork}
                       className="mt-5 grid gap-3"
                     >
@@ -1171,7 +1182,7 @@ export default function ArtistPage() {
                           <label className="label">Additional Overheads (₹)<input className="field mt-1" type="number" min="0" step="1" value={additionalOverheads} onChange={(e) => setAdditionalOverheads(e.target.value)} /></label>
                           <label className="label sm:col-span-2">Profit Margin Multiplier<input className="field mt-1" type="number" min="0.1" max="20" step="0.1" value={marginMultiplier} onChange={(e) => setMarginMultiplier(e.target.value)} /><small className="text-muted">Default 2.5x · editable by the artist</small></label>
                         </div>
-                        <p className="mt-3 text-xs text-muted">Suggested Base Price = Math.ceil((Material + (Hours × Hourly Rate) + Overheads) × Margin Multiplier)</p>
+                        <p className="mt-3 text-xs text-muted">Estimate a suggested listing price from your material cost, working time, hourly rate and additional overheads.</p>
                         <div className="mt-4 rounded-2xl bg-[#173D31] p-5 text-[#F5F1E8]">
                           <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#D0B48C]">PRIVATE PAYOUT PREVIEW</p>
                           <div className="mt-3 grid gap-4 sm:grid-cols-3">
@@ -1326,13 +1337,20 @@ export default function ArtistPage() {
                       </button>
 
                     </form>
+                      </>
+                    ) : (
+                      <div className="mt-5 rounded-2xl border border-dashed border-[#C9B99F] bg-[#FAF6F0] p-5 text-sm leading-6 text-[#6C5947]">
+                        <p className="font-semibold">{foundingLockMessage}</p>
+                      </div>
+                    )}
                   </section>
 
                   {/* WORKS AND EARNINGS */}
 
                   <section className="min-w-0">
-
-                    <div className="rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] p-6 shadow-soft md:p-7">
+                    {foundingAccessApproved ? (
+                      <>
+                        <div className="rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] p-6 shadow-soft md:p-7">
 
                       <p className="eyebrow flex items-center gap-2">
                         <Wallet size={13} />
@@ -1749,12 +1767,18 @@ export default function ArtistPage() {
                       </div>
                     </div>
 
-                    <ArtistPrivateEarnings
-                      ledger={ledger}
-                      creatorRole={artist?.creator_role || 'Painter'}
-                      isFoundingArtist={Boolean(artist?.is_founding_artist)}
-                      showLedger
-                    />
+                        <ArtistPrivateEarnings
+                          ledger={ledger}
+                          creatorRole={artist?.creator_role || 'Painter'}
+                          isFoundingArtist={Boolean(artist?.is_founding_artist)}
+                          showLedger
+                        />
+                      </>
+                    ) : (
+                      <div className="mt-5 rounded-2xl border border-dashed border-[#C9B99F] bg-[#FAF6F0] p-5 text-sm leading-6 text-[#6C5947]">
+                        <p className="font-semibold">{foundingLockMessage}</p>
+                      </div>
+                    )}
 
                   </section>
                 </div>
@@ -1769,8 +1793,9 @@ export default function ArtistPage() {
                   id="profile"
                   className="mt-8 scroll-mt-28 rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] p-6 shadow-soft md:p-8"
                 >
-
-                  <div className="flex flex-wrap items-center justify-between gap-3">
+                  {foundingAccessApproved ? (
+                    <>
+                      <div className="flex flex-wrap items-center justify-between gap-3">
 
                     <div>
                       <p className="eyebrow flex items-center gap-2">
@@ -2294,6 +2319,12 @@ export default function ArtistPage() {
 
                       </section>
 
+                    </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-[#C9B99F] bg-[#FAF6F0] p-5 text-sm leading-6 text-[#6C5947]">
+                      <p className="font-semibold">{foundingLockMessage}</p>
                     </div>
                   )}
 

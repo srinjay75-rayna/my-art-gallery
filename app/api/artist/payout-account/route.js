@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireServiceRole } from '@/lib/supabase';
 import { getUserFromRequest } from '@/lib/auth-server';
 import { encryptPayoutValue, maskBankAccount } from '@/lib/encryption';
+import { isArtistFoundingApproved } from '@/lib/artist-approval';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -59,6 +60,9 @@ export async function POST(request) {
     const supabase = requireServiceRole();
     const artist = await getArtistForPortal(supabase, user);
     if (!artist) return NextResponse.json({ error: 'Save your Artist profile and pickup address before adding payout details.' }, { status: 409 });
+    if (!(await isArtistFoundingApproved(supabase, artist))) {
+      return NextResponse.json({ error: 'Locked — This section will only open once Artiste approves your Founding Artist application.' }, { status: 403 });
+    }
     const bank = await lookupIfsc(ifsc);
     const encrypted = encryptPayoutValue(accountNumber);
     const { data, error } = await supabase.from('artist_payout_accounts').upsert({

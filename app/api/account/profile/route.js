@@ -43,6 +43,7 @@ export async function GET(request) {
 
     return NextResponse.json({
       email: user.email,
+      userId: user.id,
       ...profile,
       profile,
     }, {

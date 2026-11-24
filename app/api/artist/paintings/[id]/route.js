@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { requireServiceRole } from '@/lib/supabase';
 import { getUserFromRequest } from '@/lib/auth-server';
+import { isArtistFoundingApproved } from '@/lib/artist-approval';
 
 export const runtime = 'nodejs';
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/avif']);
@@ -33,6 +34,9 @@ export async function PATCH(request, { params }) {
     const supabase = requireServiceRole();
     const artist = await getArtistForPortal(supabase, user);
     if (!artist) return NextResponse.json({ error: 'Artist profile not found.' }, { status: 404 });
+    if (!(await isArtistFoundingApproved(supabase, artist))) {
+      return NextResponse.json({ error: 'Locked — This section will only open once Artiste approves your Founding Artist application.' }, { status: 403 });
+    }
     if (artist.is_suspended) return NextResponse.json({ error: 'Your Artist account is suspended by the Artiste owner.' }, { status: 403 });
     const { data: existing, error: existingError } = await supabase.from('paintings').select('*').eq('id', id).eq('artist_id', artist.id).maybeSingle();
     if (existingError) throw existingError;
@@ -129,6 +133,9 @@ export async function DELETE(request, { params }) {
     const supabase = requireServiceRole();
     const artist = await getArtistForPortal(supabase, user);
     if (!artist) return NextResponse.json({ error: 'Artist profile not found.' }, { status: 404 });
+    if (!(await isArtistFoundingApproved(supabase, artist))) {
+      return NextResponse.json({ error: 'Locked — This section will only open once Artiste approves your Founding Artist application.' }, { status: 403 });
+    }
     if (artist.is_suspended) return NextResponse.json({ error: 'Your Artist account is suspended by the Artiste owner.' }, { status: 403 });
     const { data: painting, error: readError } = await supabase.from('paintings').select('id,image_url,gallery_images').eq('id', id).eq('artist_id', artist.id).single();
     if (readError) throw readError;

@@ -1180,43 +1180,10 @@ alter table public.artists add column if not exists instagram_handle text defaul
 alter table public.artists add column if not exists whatsapp_number text default '';
 alter table public.artists add column if not exists latest_application_id uuid;
 
--- The original first ten registered profiles receive the founding designation.
--- This backfill is deliberately skipped when any founder designation already exists.
-do $$
-begin
-  if not exists (select 1 from public.artists where is_founding_artist = true) then
-    update public.artists
-      set is_founding_artist = true
-      where id in (
-        select id from public.artists
-        order by created_at asc nulls last, id asc
-        limit 10
-      );
-  end if;
-end;
-$$;
-
-create or replace function public.artiste_assign_initial_founding_artist()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  registered_count integer;
-begin
-  perform pg_advisory_xact_lock(hashtext('artiste_initial_founding_artist_slots'));
-  select count(*) into registered_count from public.artists;
-  if registered_count < 10 and new.is_founding_artist is not true then
-    new.is_founding_artist := true;
-  end if;
-  return new;
-end;
-$$;
+-- Founding Artist status is now granted only through an explicit Host / Owner
+-- approval. Preserve existing designations, but never auto-designate new accounts.
 drop trigger if exists artiste_initial_founding_artist on public.artists;
-create trigger artiste_initial_founding_artist
-  before insert on public.artists
-  for each row execute function public.artiste_assign_initial_founding_artist();
+drop function if exists public.artiste_assign_initial_founding_artist();
 
 alter table public.paintings add column if not exists gallery_images jsonb default '[]'::jsonb;
 alter table public.paintings add column if not exists framed_status text default 'Unframed';
@@ -1233,6 +1200,7 @@ create table if not exists public.artist_applications (
   id uuid primary key default gen_random_uuid(),
   artist_id uuid not null references public.artists(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
+  email text not null default '',
   full_name text not null,
   studio_name text not null,
   whatsapp_number text not null,
@@ -1251,6 +1219,7 @@ create table if not exists public.artist_applications (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+alter table public.artist_applications add column if not exists email text not null default '';
 alter table public.artist_applications alter column artwork_title drop not null;
 alter table public.artist_applications alter column artwork_medium drop not null;
 alter table public.artist_applications alter column artwork_dimensions drop not null;

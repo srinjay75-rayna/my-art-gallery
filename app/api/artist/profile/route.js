@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { requireServiceRole } from '@/lib/supabase';
 import { getUserFromRequest } from '@/lib/auth-server';
+import { getLatestArtistApplication, isArtistFoundingApproved } from '@/lib/artist-approval';
 import { normaliseIndianPhone } from '@/lib/india-address';
 
 export const runtime = 'nodejs';
@@ -32,6 +33,7 @@ export async function GET(request) {
     }
     let ledger = [];
     let payoutAccount = null;
+    let application = null;
     if (artist) {
       const [{ data: payouts, error: payoutError }, { data: payout, error: payoutAccountError }] = await Promise.all([
         supabase.from('artist_payouts').select('id,order_id,order_ref,artist_name,creator_role,commission_rate,gross_amount,platform_fee,artist_payout,payout_status,paid_at,delivered_at,payout_available_at,created_at').eq('artist_id', artist.id).order('created_at', { ascending: false }),
@@ -41,6 +43,7 @@ export async function GET(request) {
       if (payoutAccountError) throw payoutAccountError;
       ledger = payouts || [];
       payoutAccount = payout || null;
+      application = await getLatestArtistApplication(supabase, artist.id);
 
       const profileComplete = Boolean(artist.artist_name && artist.bio && artist.whatsapp_number && artist.email && artist.pickup_address && artist.pickup_phone && artist.pickup_locality && artist.city && artist.state && /^\d{6}$/.test(String(artist.pickup_pincode || '')));
       // Automatically activate complete, IFSC-verified studios. The explicit
@@ -54,7 +57,7 @@ export async function GET(request) {
       }
     }
     if (artist) artist = { ...artist, avatar_url: artist.avatar_url || artist.profile_photo_url || '' };
-    return NextResponse.json({ artist, ledger, payoutAccount, user: { id: user.id, email: user.email } });
+    return NextResponse.json({ artist, ledger, payoutAccount, application, user: { id: user.id, email: user.email } });
   } catch (error) { return NextResponse.json({ error: error.message || 'Please verify your email and sign in.' }, { status: 401 }); }
 }
 
@@ -81,15 +84,18 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Complete your Creator / Studio name, WhatsApp number, verified email, Artist Bio, pickup contact name and mobile number, street address, locality, city, State / UT and valid 6-digit pickup PIN code. Landmark is optional.' }, { status: 400 });
     }
     const supabase = requireServiceRole();
-    let { data: existing, error: existingError } = await supabase.from('artists').select('id,profile_photo_url,avatar_url,is_approved,is_suspended,creator_role').eq('user_id', user.id).eq('creator_role', creatorRole).maybeSingle();
+    let { data: existing, error: existingError } = await supabase.from('artists').select('id,profile_photo_url,avatar_url,is_approved,is_suspended,is_founding_artist,creator_role').eq('user_id', user.id).eq('creator_role', creatorRole).maybeSingle();
     if (!existing && creatorRole === 'Painter' && !existingError) {
-      const legacy = await supabase.from('artists').select('id,profile_photo_url,avatar_url,is_approved,is_suspended,creator_role').eq('user_id', user.id).is('creator_role', null).maybeSingle();
+      const legacy = await supabase.from('artists').select('id,profile_photo_url,avatar_url,is_approved,is_suspended,is_founding_artist,creator_role').eq('user_id', user.id).is('creator_role', null).maybeSingle();
       existing = legacy.data || null;
       existingError = legacy.error;
     }
     if (existingError) throw existingError;
     if (!existing) {
       return NextResponse.json({ error: 'No Artist profile is registered for this email. Sign up through the Artist Portal first.' }, { status: 403 });
+    }
+    if (!(await isArtistFoundingApproved(supabase, existing))) {
+      return NextResponse.json({ error: 'Locked — This section will only open once Artiste approves your Founding Artist application.' }, { status: 403 });
     }
     let profilePhotoUrl = existing.avatar_url || existing.profile_photo_url || '';
     if (photo && typeof photo.arrayBuffer === 'function' && photo.size > 0) {

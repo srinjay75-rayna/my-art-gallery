@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { requireServiceRole } from '@/lib/supabase';
 import { getUserFromRequest } from '@/lib/auth-server';
+import { isArtistFoundingApproved } from '@/lib/artist-approval';
 
 export const runtime = 'nodejs';
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/avif']);
@@ -47,6 +48,9 @@ export async function POST(request) {
     const supabase = requireServiceRole();
     const artist = await getArtistForPortal(supabase, user);
     if (!artist) return NextResponse.json({ error: 'Create your Artist profile before listing an artwork.' }, { status: 403 });
+    if (!(await isArtistFoundingApproved(supabase, artist))) {
+      return NextResponse.json({ error: 'Locked — This section will only open once Artiste approves your Founding Artist application.' }, { status: 403 });
+    }
     if (artist.is_suspended) return NextResponse.json({ error: 'Your Artist account is currently suspended by the Artiste owner. Please contact support.' }, { status: 403 });
 
     const form = await request.formData();

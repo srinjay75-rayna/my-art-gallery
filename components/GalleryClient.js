@@ -24,13 +24,9 @@ function ArtCard({ painting, onDetails, onAdd, onBuy, onArtistFilter }) {
 }
 
 export default function GalleryClient({ paintings = [], artists = [], galleryError = '', pageMode = 'home', initialCategory = 'All Works', collectionArtistName = '' }) {
-  const [cart, setCart] = useState(() => {
-    if (typeof window === 'undefined') return [];
-    try {
-      const saved = JSON.parse(window.localStorage.getItem('artiste_cart_items') || '[]');
-      return Array.isArray(saved) ? saved : [];
-    } catch { return []; }
-  });
+  const [cart, setCart] = useState([]);
+  const [cartUserId, setCartUserId] = useState('');
+  const cartOwnerRef = useRef('');
   const [drawer, setDrawer] = useState(false);
   const [detail, setDetail] = useState(null);
   const [detailImageIndex, setDetailImageIndex] = useState(0);
@@ -56,13 +52,47 @@ export default function GalleryClient({ paintings = [], artists = [], galleryErr
   const rateRequestRef = useRef(0);
   const lastAutoRateKeyRef = useRef('');
 
+  function syncCartOwner(nextUserId) {
+    const userId = String(nextUserId || '').trim();
+    if (cartOwnerRef.current === userId) return;
+
+    cartOwnerRef.current = userId;
+    let savedItems = [];
+    if (userId && typeof window !== 'undefined') {
+      try {
+        const saved = JSON.parse(window.localStorage.getItem(`artiste_cart_${userId}`) || '[]');
+        savedItems = Array.isArray(saved) ? saved : [];
+      } catch {
+        savedItems = [];
+      }
+    }
+
+    setCartUserId(userId);
+    setCart(savedItems);
+    setRates([]);
+    setChosen({});
+    setRatesBusy(false);
+    lastAutoRateKeyRef.current = '';
+  }
+
   useEffect(() => {
     try {
       const supabase = getBrowserSupabase();
       const acceptSession = (value) => {
-        if (value?.accountType === 'customer') { setSession(value); return; }
-        if (value && (!hasEmailOtpSession(value) || value.user?.user_metadata?.account_type === 'artist')) { setSession(null); setTimeout(() => supabase.auth.signOut(), 0); return; }
-        setSession(value || null);
+        if (value?.accountType === 'customer') {
+          setSession(value);
+          syncCartOwner(value.user?.id);
+          return;
+        }
+        if (value && (!hasEmailOtpSession(value) || value.user?.user_metadata?.account_type === 'artist')) {
+          setSession(null);
+          syncCartOwner('');
+          setTimeout(() => supabase.auth.signOut(), 0);
+          return;
+        }
+        const customerSession = value?.user?.user_metadata?.account_type === 'customer' ? value : null;
+        setSession(customerSession);
+        syncCartOwner(customerSession?.user?.id || '');
       };
       acceptSession(getPortalSession('customer'));
       supabase.auth.getSession().then(({ data }) => { if (!getPortalSession('customer')) acceptSession(data.session || null); });
@@ -175,9 +205,14 @@ export default function GalleryClient({ paintings = [], artists = [], galleryErr
   const shippingTotal = rates.reduce((sum, group) => sum + Number(chosen[group.groupKey]?.rate || 0), 0);
   const total = subtotal + shippingTotal;
   useEffect(() => {
-    try { window.localStorage.setItem('artiste_cart_items', JSON.stringify(cart)); } catch {}
-    window.dispatchEvent(new CustomEvent('artiste:cart-count', { detail: { count: cart.length } }));
-  }, [cart]);
+    if (!cartUserId || cartOwnerRef.current !== cartUserId) return;
+    try {
+      window.localStorage.setItem(`artiste_cart_${cartUserId}`, JSON.stringify(cart));
+    } catch {}
+    window.dispatchEvent(new CustomEvent('artiste:cart-count', {
+      detail: { count: cart.length, userId: cartUserId },
+    }));
+  }, [cart, cartUserId]);
 
   async function fetchCustomerProfile() {
     const requestId = ++profileRequestRef.current;
@@ -190,6 +225,8 @@ export default function GalleryClient({ paintings = [], artists = [], galleryErr
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Could not load Customer details.');
+      const verifiedUserId = String(data.userId || data.user?.id || '');
+      if (verifiedUserId) syncCartOwner(verifiedUserId);
       const source = data.profile && typeof data.profile === 'object' ? data.profile : data;
       const next = {
         full_name: String(source.full_name ?? data.full_name ?? ''),
@@ -239,6 +276,7 @@ export default function GalleryClient({ paintings = [], artists = [], galleryErr
     let currentSession = getPortalSession('customer') || session;
     if (currentSession?.accountType === 'customer') {
       setSession(currentSession);
+      syncCartOwner(currentSession.user?.id);
       addPendingArtwork({ painting, type });
       return;
     }
@@ -285,6 +323,7 @@ export default function GalleryClient({ paintings = [], artists = [], galleryErr
 
   async function onCustomerVerified(newSession) {
     setSession(newSession);
+    syncCartOwner(newSession?.user?.id);
     try {
       const customerProfile = await fetchCustomerProfile();
       const isComplete = customerProfile.full_name && customerProfile.phone && customerProfile.address && customerProfile.locality && customerProfile.city && customerProfile.state && /^\d{6}$/.test(String(customerProfile.pincode || ''));

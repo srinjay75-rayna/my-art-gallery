@@ -63,6 +63,7 @@ export async function POST(request) {
     const application = {
       artist_id: artist.id,
       user_id: user.id,
+      email: String(user.email || '').trim().toLowerCase(),
       full_name: fullName,
       studio_name: studioName,
       whatsapp_number: `+91${whatsapp}`,
