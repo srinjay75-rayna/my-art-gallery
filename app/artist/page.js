@@ -122,16 +122,10 @@ export default function ArtistPage() {
   // Never use that object itself as an effect dependency.
   const sessionToken = session?.access_token || '';
   const sessionUserId = session?.user?.id || '';
-
   const sessionAccountType =
-    session?.accountType ||
-    session?.user?.user_metadata?.account_type ||
-    '';
-
+    session?.accountType || session?.user?.user_metadata?.account_type || '';
   const sessionCreatorRole =
-    session?.creatorRole ||
-    session?.user?.user_metadata?.creator_role ||
-    '';
+    session?.creatorRole || session?.user?.user_metadata?.creator_role || '';
 
   const studioSessionKey =
     sessionToken && sessionUserId && sessionAccountType === 'artist'
@@ -214,11 +208,6 @@ export default function ArtistPage() {
 
   /* ==========================================
      UNIFIED AUTHENTICATED API HELPER
-
-     Automatically sends:
-     - Authorization: Bearer <signed-token>
-     - credentials: include
-     - artiste_portal_session cookie
   ========================================== */
 
   async function api(url, options = {}) {
@@ -290,12 +279,13 @@ export default function ArtistPage() {
         )
       );
 
+      // INCOMPLETE PROFILE: open inline editor instead of redirecting.
       if (!complete) {
-        router.replace('/artist/onboarding');
-        return;
+        setEditingDetails(true);
+      } else {
+        setEditingDetails(false);
       }
 
-      setEditingDetails(false);
       setEditingPayout(false);
 
       setPayoutAccount(data.payoutAccount || null);
@@ -363,9 +353,7 @@ export default function ArtistPage() {
   /* ==========================================
      LOAD DASHBOARD AFTER AUTHENTICATION
 
-     The effect depends only on primitive session identity values. The ref
-     prevents duplicate requests when the same portal session is re-published
-     or React re-runs an effect with the same identity.
+     Primitive session key + ref prevent repeated loads.
   ========================================== */
 
   useEffect(() => {
@@ -398,7 +386,6 @@ export default function ArtistPage() {
       }
     });
 
-    // loadArtistStudio is intentionally guarded by the primitive session key.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [studioSessionKey, router]);
 
@@ -555,8 +542,7 @@ export default function ArtistPage() {
 
       setPayoutForm((current) => ({
         ...payoutBlank,
-        account_holder_name:
-          current.account_holder_name,
+        account_holder_name: current.account_holder_name,
         ifsc_code: current.ifsc_code,
         upi_id: current.upi_id,
       }));
@@ -624,7 +610,9 @@ export default function ArtistPage() {
 
       data.append('artist_id', artistProfile.id);
 
-      photos.forEach((file) => data.append('photos', file));
+      photos.forEach((file) => {
+        data.append('photos', file);
+      });
 
       const result = await api('/api/artist/paintings', {
         method: 'POST',
@@ -677,7 +665,9 @@ export default function ArtistPage() {
       return;
     }
 
-    const previous = artworks.find((item) => item.id === painting.id);
+    const previous = artworks.find(
+      (item) => item.id === painting.id
+    );
 
     setError('');
     setNotice('');
@@ -838,10 +828,6 @@ export default function ArtistPage() {
 
   /* ==========================================
      SIGN OUT
-
-     Clear both:
-     - Browser's signed session
-     - Server's HTTP-only cookie
   ========================================== */
 
   async function logout() {
@@ -1035,9 +1021,7 @@ export default function ArtistPage() {
 
                 <div className="mt-7 grid items-start gap-7 lg:grid-cols-[.9fr_1.1fr]">
 
-                  {/* ==================================
-                      ARTWORK UPLOAD STUDIO
-                  ================================== */}
+                  {/* ARTWORK UPLOAD STUDIO */}
 
                   <section className="rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] p-6 shadow-soft md:p-7">
 
@@ -1184,11 +1168,10 @@ export default function ArtistPage() {
                         </select>
                       </label>
 
-                      {/* ==================================
-                          PRIVATE ZERO-CAPITAL WEBSITE PRICE CALCULATOR
-                      ================================== */}
+                      {/* PRIVATE ZERO-CAPITAL WEBSITE PRICE CALCULATOR */}
 
                       <section className="rounded-2xl border border-[#D9C6A6] bg-[#FAF6F0] p-4">
+
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div>
                             <p className="eyebrow">
@@ -1208,6 +1191,7 @@ export default function ArtistPage() {
                         </div>
 
                         <div className="mt-4 grid gap-3 sm:grid-cols-2">
+
                           <label className="label">
                             Artist Desired Payout (₹)
 
@@ -1233,6 +1217,7 @@ export default function ArtistPage() {
                               onChange={(e) => setShippingBuffer(e.target.value)}
                             />
                           </label>
+
                         </div>
 
                         <p className="mt-3 text-xs leading-5 text-muted">
@@ -1240,11 +1225,13 @@ export default function ArtistPage() {
                         </p>
 
                         <div className="mt-4 rounded-2xl bg-[#173D31] p-5 text-[#F5F1E8]">
+
                           <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#D0B48C]">
                             PRIVATE PAYOUT PREVIEW
                           </p>
 
                           <div className="mt-3 grid gap-4 sm:grid-cols-3">
+
                             <div>
                               <p className="text-[10px] uppercase tracking-wider text-[#C6D3CA]">
                                 Artist Net Payout
@@ -1274,14 +1261,17 @@ export default function ArtistPage() {
                                 {money(recommendedListingPrice)}
                               </p>
                             </div>
+
                           </div>
 
                           <p className="mt-4 border-t border-white/15 pt-3 text-xs leading-5 text-[#E2E9E3]">
                             Artist payouts are released 48 hours after the courier marks the shipment “Delivered”.
                           </p>
+
                         </div>
 
                         <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+
                           <p className="text-xs text-muted">
                             This private estimate uses your studio’s artist share and the delivery buffer.
                           </p>
@@ -1296,12 +1286,12 @@ export default function ArtistPage() {
                           >
                             Apply Recommended Price
                           </button>
+
                         </div>
+
                       </section>
 
-                      {/* ==================================
-                          LISTING PRICE
-                      ================================== */}
+                      {/* LISTING PRICE */}
 
                       <label className="label">
                         Listing Price (INR)
@@ -1324,9 +1314,7 @@ export default function ArtistPage() {
                         </small>
                       </label>
 
-                      {/* ==================================
-                          STOCK, EDITION AND PRINT DETAILS
-                      ================================== */}
+                      {/* STOCK, EDITION AND PRINT DETAILS */}
 
                       {[
                         [
@@ -1432,10 +1420,7 @@ export default function ArtistPage() {
                       </div>
 
                       <button
-                        disabled={
-                          busy ||
-                          isSuspended
-                        }
+                        disabled={busy || isSuspended}
                         className="btn-primary inline-flex items-center justify-center gap-2"
                       >
                         {busy
@@ -1450,9 +1435,7 @@ export default function ArtistPage() {
                     </form>
                   </section>
 
-                  {/* ==================================
-                      WORKS AND EARNINGS
-                  ================================== */}
+                  {/* WORKS AND EARNINGS */}
 
                   <section className="min-w-0">
 
@@ -1483,6 +1466,7 @@ export default function ArtistPage() {
                           >
 
                             <div className="w-24 shrink-0">
+
                               <img
                                 src={selectedStudioImages[painting.id] || painting.image_url}
                                 alt={painting.title}
@@ -1490,25 +1474,19 @@ export default function ArtistPage() {
                               />
 
                               <div className="mt-1 flex gap-1 overflow-x-auto">
-                                {(
-                                  Array.isArray(painting.gallery_images) &&
-                                  painting.gallery_images.length
-                                    ? painting.gallery_images
-                                    : [painting.image_url]
+                                {(Array.isArray(painting.gallery_images) && painting.gallery_images.length
+                                  ? painting.gallery_images
+                                  : [painting.image_url]
                                 ).map((src, index) => (
                                   <button
                                     key={`${painting.id}-thumb-${index}`}
                                     type="button"
-                                    onClick={() => setSelectedStudioImages(
-                                      (current) => ({
-                                        ...current,
-                                        [painting.id]: src,
-                                      })
-                                    )}
+                                    onClick={() => setSelectedStudioImages((current) => ({
+                                      ...current,
+                                      [painting.id]: src,
+                                    }))}
                                     className={`h-7 w-7 shrink-0 overflow-hidden rounded-md border ${
-                                      (
-                                        (selectedStudioImages[painting.id] || painting.image_url) === src
-                                      )
+                                      ((selectedStudioImages[painting.id] || painting.image_url) === src)
                                         ? 'border-[#B85D3B]'
                                         : 'border-[#D9C6A6]'
                                     }`}
@@ -1588,7 +1566,9 @@ export default function ArtistPage() {
 
                               {editingPaintingId === painting.id && (
                                 <form
-                                  onSubmit={(event) => savePaintingDetails(event, painting)}
+                                  onSubmit={(event) =>
+                                    savePaintingDetails(event, painting)
+                                  }
                                   className="mt-3 grid gap-2 rounded-xl border border-[#D9C6A6] bg-[#FAF6F0] p-3"
                                 >
                                   <label className="label">
@@ -1599,12 +1579,10 @@ export default function ArtistPage() {
                                       required
                                       maxLength={120}
                                       value={paintingEditForm.title || ''}
-                                      onChange={(e) => setPaintingEditForm(
-                                        (current) => ({
-                                          ...current,
-                                          title: e.target.value,
-                                        })
-                                      )}
+                                      onChange={(e) => setPaintingEditForm((current) => ({
+                                        ...current,
+                                        title: e.target.value,
+                                      }))}
                                     />
                                   </label>
 
@@ -1615,16 +1593,15 @@ export default function ArtistPage() {
                                       className="field mt-1 min-h-20"
                                       maxLength={3000}
                                       value={paintingEditForm.description || ''}
-                                      onChange={(e) => setPaintingEditForm(
-                                        (current) => ({
-                                          ...current,
-                                          description: e.target.value,
-                                        })
-                                      )}
+                                      onChange={(e) => setPaintingEditForm((current) => ({
+                                        ...current,
+                                        description: e.target.value,
+                                      }))}
                                     />
                                   </label>
 
                                   <div className="grid gap-2 sm:grid-cols-2">
+
                                     <label className="label">
                                       Medium
 
@@ -1633,12 +1610,10 @@ export default function ArtistPage() {
                                         required
                                         maxLength={120}
                                         value={paintingEditForm.medium || ''}
-                                        onChange={(e) => setPaintingEditForm(
-                                          (current) => ({
-                                            ...current,
-                                            medium: e.target.value,
-                                          })
-                                        )}
+                                        onChange={(e) => setPaintingEditForm((current) => ({
+                                          ...current,
+                                          medium: e.target.value,
+                                        }))}
                                       />
                                     </label>
 
@@ -1650,12 +1625,10 @@ export default function ArtistPage() {
                                         required
                                         maxLength={100}
                                         value={paintingEditForm.dimensions || ''}
-                                        onChange={(e) => setPaintingEditForm(
-                                          (current) => ({
-                                            ...current,
-                                            dimensions: e.target.value,
-                                          })
-                                        )}
+                                        onChange={(e) => setPaintingEditForm((current) => ({
+                                          ...current,
+                                          dimensions: e.target.value,
+                                        }))}
                                       />
                                     </label>
 
@@ -1665,12 +1638,10 @@ export default function ArtistPage() {
                                       <select
                                         className="field mt-1"
                                         value={paintingEditForm.framed_status || 'Unframed'}
-                                        onChange={(e) => setPaintingEditForm(
-                                          (current) => ({
-                                            ...current,
-                                            framed_status: e.target.value,
-                                          })
-                                        )}
+                                        onChange={(e) => setPaintingEditForm((current) => ({
+                                          ...current,
+                                          framed_status: e.target.value,
+                                        }))}
                                       >
                                         <option>Unframed</option>
                                         <option>Framed</option>
@@ -1687,17 +1658,17 @@ export default function ArtistPage() {
                                         step="0.01"
                                         required
                                         value={paintingEditForm.price || ''}
-                                        onChange={(e) => setPaintingEditForm(
-                                          (current) => ({
-                                            ...current,
-                                            price: e.target.value,
-                                          })
-                                        )}
+                                        onChange={(e) => setPaintingEditForm((current) => ({
+                                          ...current,
+                                          price: e.target.value,
+                                        }))}
                                       />
                                     </label>
+
                                   </div>
 
                                   <div className="grid gap-2">
+
                                     <p className="label">
                                       Current artwork photos · choose which to keep
                                     </p>
@@ -1717,8 +1688,8 @@ export default function ArtistPage() {
                                           <button
                                             type="button"
                                             className="text-[10px] font-semibold text-clay underline"
-                                            onClick={() => setPaintingEditGalleryImages(
-                                              (current) => current.filter(
+                                            onClick={() => setPaintingEditGalleryImages((current) =>
+                                              current.filter(
                                                 (_, imageIndex) => imageIndex !== index
                                               )
                                             )}
@@ -1728,6 +1699,7 @@ export default function ArtistPage() {
                                         </div>
                                       ))}
                                     </div>
+
                                   </div>
 
                                   <label className="label">
@@ -1762,6 +1734,7 @@ export default function ArtistPage() {
                                   >
                                     Save Artwork Details
                                   </button>
+
                                 </form>
                               )}
 
@@ -1803,8 +1776,8 @@ export default function ArtistPage() {
                                     (painting.is_sold ? 0 : 1)
                                   }
                                   disabled={busy || isSuspended}
-                                  onChange={(event) => setArtworks(
-                                    (current) => current.map((item) =>
+                                  onChange={(event) => setArtworks((current) =>
+                                    current.map((item) =>
                                       item.id === painting.id
                                         ? {
                                             ...item,
@@ -1897,9 +1870,7 @@ export default function ArtistPage() {
                   <FoundingArtistApplication />
                 </div>
 
-                {/* ==================================
-                    ARTIST PROFILE AND BANK DETAILS
-                ================================== */}
+                {/* ARTIST PROFILE AND BANK DETAILS */}
 
                 <section
                   id="profile"
@@ -2228,9 +2199,7 @@ export default function ArtistPage() {
 
                       </form>
 
-                      {/* ==================================
-                          VERIFIED BANK AND UPI PAYOUT DETAILS
-                      ================================== */}
+                      {/* VERIFIED BANK AND UPI PAYOUT DETAILS */}
 
                       <section className="rounded-2xl border border-[#eee6db] p-5">
 
