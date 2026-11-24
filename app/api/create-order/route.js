@@ -56,7 +56,16 @@ export async function POST(request) {
     ]);
     if (profileError) throw profileError;
     if (paintingError) throw paintingError;
-    const profileErrorText = validateProfile(profile);
+    const requestedDeliveryPincode = body.deliveryPincode === undefined
+      ? ''
+      : String(body.deliveryPincode || '').trim();
+    if (body.deliveryPincode !== undefined && !/^\d{6}$/.test(requestedDeliveryPincode)) {
+      return NextResponse.json({ error: 'Enter a valid 6-digit delivery PIN code.' }, { status: 400 });
+    }
+    // The Cart Drawer may supply an order-specific delivery PIN without
+    // overwriting the customer's default address saved in My Details.
+    const destinationPincode = requestedDeliveryPincode || String(profile?.pincode || '').trim();
+    const profileErrorText = validateProfile(profile ? { ...profile, pincode: destinationPincode } : profile);
     if (profileErrorText) return NextResponse.json({ error: profileErrorText }, { status: 400 });
     if (!paintings || paintings.length !== ids.length) return NextResponse.json({ error: 'One or more artworks have already sold or are unavailable.' }, { status: 409 });
 
@@ -126,7 +135,7 @@ export async function POST(request) {
     });
 
     const groups = groupPaintingsByPickup(enrichedPaintings);
-    const liveRateGroups = await getCourierRatesByPickup(enrichedPaintings, String(profile.pincode), { city: profile.city, state: profile.state });
+    const liveRateGroups = await getCourierRatesByPickup(enrichedPaintings, destinationPincode, { city: profile.city, state: profile.state });
     const requestedSelections = Array.isArray(body.couriers) ? body.couriers : [];
     if (requestedSelections.length !== groups.length) return NextResponse.json({ error: 'Select one live courier for every Artist pickup location.' }, { status: 400 });
 
@@ -230,7 +239,7 @@ export async function POST(request) {
       buyer_address: String(profile.address).trim(),
       buyer_city: profile.city,
       buyer_state: profile.state,
-      buyer_pincode: profile.pincode,
+      buyer_pincode: destinationPincode,
       customer_name: customerName,
       customer_email: customerEmail,
       customer_phone: customerPhone,
@@ -239,7 +248,7 @@ export async function POST(request) {
       locality: String(profile.locality).trim(),
       city: profile.city,
       state: profile.state,
-      pincode: profile.pincode,
+      pincode: destinationPincode,
       artwork_price: artworkPrice,
       shipping_price: shippingAmount,
       shipping_amount: shippingAmount,

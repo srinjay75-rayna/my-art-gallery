@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, CheckCircle2, IndianRupee, MapPin, Palette, ShoppingBag, ShieldCheck, Sparkles, UserRound, X } from 'lucide-react';
 import { getBrowserSupabase } from '@/lib/supabase-browser';
 import { hasEmailOtpSession, getPortalSession, portalFetch, subscribePortalSession } from '@/lib/client-auth';
@@ -48,6 +48,13 @@ export default function GalleryClient({ paintings = [], artists = [], galleryErr
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [success, setSuccess] = useState(false);
+  const [loadingSavedAddress, setLoadingSavedAddress] = useState(false);
+  const [customerEmail, setCustomerEmail] = useState('');
+  const [ratesBusy, setRatesBusy] = useState(false);
+  const [addressRefreshVersion, setAddressRefreshVersion] = useState(0);
+  const profileRequestRef = useRef(0);
+  const rateRequestRef = useRef(0);
+  const lastAutoRateKeyRef = useRef('');
 
   useEffect(() => {
     try {
@@ -85,7 +92,7 @@ export default function GalleryClient({ paintings = [], artists = [], galleryErr
       try { pending = JSON.parse(localStorage.getItem('artiste_pending_cart') || 'null'); } catch { pending = null; }
       if (!pending?.painting?.id) return;
       try {
-        const customerProfile = await fetchCustomerProfile(session);
+        const customerProfile = await fetchCustomerProfile();
         const isComplete = customerProfile.full_name && customerProfile.phone && customerProfile.address && customerProfile.locality && customerProfile.city && customerProfile.state && /^\d{6}$/.test(String(customerProfile.pincode || ''));
         if (cancelled) return;
         if (!isComplete) { window.location.assign('/account/onboarding'); return; }
@@ -97,6 +104,39 @@ export default function GalleryClient({ paintings = [], artists = [], galleryErr
     resumePending();
     return () => { cancelled = true; };
   }, [session]);
+
+  // Load the saved address whenever the basket opens or a Customer session is
+  // established/changed. The API accepts the signed portal cookie as well as
+  // the Bearer token, so this also works when the HTTP-only cookie is the
+  // available credential.
+  useEffect(() => {
+    if (!drawer && session?.accountType !== 'customer') return;
+    fetchCustomerProfile().catch(() => {});
+  }, [drawer, session?.access_token]);
+
+  // Browser Back/Forward from My Details can restore this page without a full
+  // remount. Refresh the saved profile on return so the basket never relies on
+  // stale contact or PIN details.
+  useEffect(() => {
+    const refreshOnReturn = () => {
+      if (document.visibilityState === 'hidden') return;
+      if (drawer || getPortalSession('customer')) {
+        fetchCustomerProfile().catch(() => {});
+      }
+    };
+    window.addEventListener('focus', refreshOnReturn);
+    window.addEventListener('pageshow', refreshOnReturn);
+    window.addEventListener('popstate', refreshOnReturn);
+    window.addEventListener('artiste:customer-profile-updated', refreshOnReturn);
+    document.addEventListener('visibilitychange', refreshOnReturn);
+    return () => {
+      window.removeEventListener('focus', refreshOnReturn);
+      window.removeEventListener('pageshow', refreshOnReturn);
+      window.removeEventListener('popstate', refreshOnReturn);
+      window.removeEventListener('artiste:customer-profile-updated', refreshOnReturn);
+      document.removeEventListener('visibilitychange', refreshOnReturn);
+    };
+  }, [drawer]);
 
   const creatorRoleById = useMemo(() => new Map(artists.map((creator) => [String(creator.id), creator.creator_role === 'Photographer' ? 'Photographer' : 'Painter'])), [artists]);
   const creatorRoleByName = useMemo(() => new Map(artists.map((creator) => [String(creator.artist_name || '').trim().toLocaleLowerCase(), creator.creator_role === 'Photographer' ? 'Photographer' : 'Painter'])), [artists]);
@@ -139,15 +179,50 @@ export default function GalleryClient({ paintings = [], artists = [], galleryErr
     window.dispatchEvent(new CustomEvent('artiste:cart-count', { detail: { count: cart.length } }));
   }, [cart]);
 
-  async function fetchCustomerProfile(currentSession) {
-    const response = currentSession?.accountType === 'customer'
-      ? await portalFetch('/api/account', { cache: 'no-store' })
-      : await fetch('/api/account', { headers: { Authorization: `Bearer ${currentSession.access_token}` } });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Could not load Customer details.');
-    const next = { ...emptyProfile, ...(data.profile || {}) };
-    setProfile(next);
-    return next;
+  async function fetchCustomerProfile() {
+    const requestId = ++profileRequestRef.current;
+    setLoadingSavedAddress(true);
+    try {
+      const response = await portalFetch('/api/account/profile', {
+        method: 'GET',
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Could not load Customer details.');
+      const source = data.profile && typeof data.profile === 'object' ? data.profile : data;
+      const next = {
+        full_name: String(source.full_name ?? data.full_name ?? ''),
+        phone: String(source.phone ?? data.phone ?? ''),
+        address: String(source.address ?? data.address ?? ''),
+        landmark: String(source.landmark ?? data.landmark ?? ''),
+        locality: String(source.locality ?? data.locality ?? ''),
+        city: String(source.city ?? data.city ?? ''),
+        state: String(source.state ?? data.state ?? ''),
+        pincode: String(source.pincode ?? data.pincode ?? '').replace(/\D/g, '').slice(0, 6),
+      };
+      if (requestId === profileRequestRef.current) {
+        setProfile(next);
+        setCustomerEmail(String(data.email || data.user?.email || ''));
+        setAddressRefreshVersion((value) => value + 1);
+      }
+      return next;
+    } finally {
+      if (requestId === profileRequestRef.current) setLoadingSavedAddress(false);
+    }
+  }
+
+  async function refreshSavedAddress() {
+    setError('');
+    setMessage('');
+    try {
+      const next = await fetchCustomerProfile();
+      setMessage(/^\d{6}$/.test(next.pincode)
+        ? 'Saved delivery address refreshed. Courier rates are being updated.'
+        : 'Saved details refreshed. Enter a 6-digit delivery PIN to calculate courier rates.');
+    } catch (err) {
+      setError(err.message || 'Could not refresh your saved address.');
+    }
   }
 
   function addPendingArtwork(intent) {
@@ -182,11 +257,26 @@ export default function GalleryClient({ paintings = [], artists = [], galleryErr
       } catch { currentSession = null; }
     }
     if (!currentSession) {
+      // A signed HTTP-only portal cookie is also a valid Customer session,
+      // even when this tab no longer has the matching local session object.
+      try {
+        const cookieProfile = await fetchCustomerProfile();
+        const isComplete = cookieProfile.full_name && cookieProfile.phone && cookieProfile.address && cookieProfile.locality && cookieProfile.city && cookieProfile.state && /^\d{6}$/.test(String(cookieProfile.pincode || ''));
+        if (isComplete) {
+          addPendingArtwork({ painting, type });
+          return;
+        }
+        setProfile(cookieProfile);
+        setGateStep('details');
+        return;
+      } catch {
+        // No authenticated Customer cookie: retain the normal OTP gate.
+      }
       try { localStorage.setItem('artiste_pending_cart', JSON.stringify({ painting, type })); } catch {}
       setGateStep('auth'); return;
     }
     try {
-      const customerProfile = await fetchCustomerProfile(currentSession);
+      const customerProfile = await fetchCustomerProfile();
       const isComplete = customerProfile.full_name && customerProfile.phone && customerProfile.address && customerProfile.locality && customerProfile.city && customerProfile.state && /^\d{6}$/.test(String(customerProfile.pincode || ''));
       if (isComplete) addPendingArtwork({ painting, type });
       else { try { localStorage.setItem('artiste_pending_cart', JSON.stringify({ painting, type })); } catch {} window.location.assign('/account/onboarding'); }
@@ -196,7 +286,7 @@ export default function GalleryClient({ paintings = [], artists = [], galleryErr
   async function onCustomerVerified(newSession) {
     setSession(newSession);
     try {
-      const customerProfile = await fetchCustomerProfile(newSession);
+      const customerProfile = await fetchCustomerProfile();
       const isComplete = customerProfile.full_name && customerProfile.phone && customerProfile.address && customerProfile.locality && customerProfile.city && customerProfile.state && /^\d{6}$/.test(String(customerProfile.pincode || ''));
       if (isComplete) addPendingArtwork(pendingIntent);
       else setGateStep('details');
@@ -216,47 +306,92 @@ export default function GalleryClient({ paintings = [], artists = [], galleryErr
     finally { setBusy(false); }
   }
 
-  function updateProfile(patch) { setProfile((current) => ({ ...current, ...patch })); if (patch.pincode !== undefined || patch.city !== undefined || patch.state !== undefined) { setRates([]); setChosen({}); } }
-  function removeItem(id) { setCart((current) => current.filter((p) => String(p.id) !== String(id))); setRates([]); setChosen({}); }
+  function updateProfile(patch) {
+    const normalizedPatch = patch.pincode !== undefined
+      ? { ...patch, pincode: String(patch.pincode || '').replace(/\D/g, '').slice(0, 6) }
+      : patch;
+    setProfile((current) => ({ ...current, ...normalizedPatch }));
+    if (patch.pincode !== undefined || patch.city !== undefined || patch.state !== undefined) {
+      lastAutoRateKeyRef.current = '';
+      rateRequestRef.current += 1;
+      setRates([]);
+      setChosen({});
+      setRatesBusy(false);
+    }
+  }
+  function removeItem(id) {
+    lastAutoRateKeyRef.current = '';
+    rateRequestRef.current += 1;
+    setCart((current) => current.filter((p) => String(p.id) !== String(id)));
+    setRates([]);
+    setChosen({});
+    setRatesBusy(false);
+  }
 
   async function fetchRates(event) {
-    event.preventDefault(); setError(''); setMessage(''); setBusy(true);
+    event?.preventDefault();
+    const deliveryPincode = String(profile.pincode || '').trim();
+    if (!/^\d{6}$/.test(deliveryPincode)) {
+      setRates([]);
+      setChosen({});
+      setError('Enter a valid 6-digit delivery PIN code.');
+      return;
+    }
+    const requestId = ++rateRequestRef.current;
+    const requestedItems = cart.map((p) => ({ paintingId: p.id, archival_print_requested: Boolean(p.archival_print_requested) }));
+    setError('');
+    setMessage('');
+    setRatesBusy(true);
     try {
-      if (!session) throw new Error('Verify your email as a Customer before checking delivery rates.');
-      const response = await fetch('/api/shipping-rates', {
+      const response = await portalFetch('/api/shipping-rates', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ items: cart.map((p) => ({ paintingId: p.id, archival_print_requested: Boolean(p.archival_print_requested) })), deliveryPincode: profile.pincode, deliveryCity: profile.city, deliveryState: profile.state }),
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: requestedItems, deliveryPincode, deliveryCity: profile.city, deliveryState: profile.state }),
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Could not fetch courier rates.');
       if (!data.groups?.length || data.groups.some((group) => !group.couriers?.length)) throw new Error('No courier service is available for one or more Artist pickup locations.');
+      if (requestId !== rateRequestRef.current) return;
       setRates(data.groups);
       setChosen(Object.fromEntries(data.groups.map((group) => [group.groupKey, group.couriers[0] || null])));
       setMessage(`Delivery options are ready for ${data.groups.length} Artist pickup location(s). The lowest-priced option is selected automatically.`);
-    } catch (err) { setError(err.message); }
-    finally { setBusy(false); }
+    } catch (err) {
+      if (requestId === rateRequestRef.current) setError(err.message);
+    } finally {
+      if (requestId === rateRequestRef.current) setRatesBusy(false);
+    }
   }
+
+  // Quote as soon as a saved or manually entered PIN becomes valid. The key
+  // prevents rerenders from sending duplicate Shiprocket requests.
+  useEffect(() => {
+    if (!drawer || gateStep !== 'cart' || !cart.length || !/^\d{6}$/.test(String(profile.pincode || ''))) return;
+    const artworkKey = cart.map((item) => `${item.id}:${Boolean(item.archival_print_requested)}`).sort().join('|');
+    const quoteKey = `${profile.pincode}|${profile.city}|${profile.state}|${artworkKey}|${addressRefreshVersion}`;
+    if (lastAutoRateKeyRef.current === quoteKey) return;
+    lastAutoRateKeyRef.current = quoteKey;
+    fetchRates();
+  }, [drawer, gateStep, cart, profile.pincode, profile.city, profile.state, addressRefreshVersion]);
 
   async function checkout() {
     setError(''); setBusy(true);
     try {
-      if (!session) throw new Error('Please verify your email to continue.');
-      const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` };
       if (!rates.length || rates.some((group) => !chosen[group.groupKey])) throw new Error('Choose a courier for every Artist pickup location.');
+      const headers = { 'Content-Type': 'application/json' };
       const couriers = rates.map((group) => ({ groupKey: group.groupKey, courierId: chosen[group.groupKey].courier_company_id, quotedRate: chosen[group.groupKey].rate }));
-      const response = await fetch('/api/create-order', { method: 'POST', headers, body: JSON.stringify({ items: cart.map((p) => ({ paintingId: p.id, archival_print_requested: Boolean(p.archival_print_requested) })), couriers }) });
+      const response = await portalFetch('/api/create-order', { method: 'POST', credentials: 'include', headers, body: JSON.stringify({ items: cart.map((p) => ({ paintingId: p.id, archival_print_requested: Boolean(p.archival_print_requested) })), deliveryPincode: profile.pincode, couriers }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not start payment.');
       if (!window.Razorpay) throw new Error('Razorpay Checkout did not load. Refresh and try again.');
       const checkoutInstance = new window.Razorpay({
         key: data.keyId, amount: data.amount, currency: data.currency || 'INR', name: 'Artiste', description: `${cart.length} original artwork(s)`,
-        image: '/favicon.ico', order_id: data.orderId, prefill: { name: profile.full_name, email: session.user.email, contact: profile.phone },
+        image: '/favicon.ico', order_id: data.orderId, prefill: { name: profile.full_name, email: session?.user?.email || customerEmail, contact: profile.phone },
         notes: { item_count: String(cart.length), courier_groups: String(rates.length) }, theme: { color: '#B85D3B' },
         handler: async (payment) => {
           setBusy(true); setMessage('Verifying payment and arranging your shipment…');
           try {
-            const verification = await fetch('/api/verify-payment', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify(payment) });
+            const verification = await portalFetch('/api/verify-payment', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payment) });
             const result = await verification.json();
             if (!verification.ok) throw new Error(result.error || 'Payment verification failed.');
             setSuccess(true); setMessage(result.message || 'Payment received.'); setCart([]); setRates([]); setChosen({}); setGateStep('cart');
@@ -307,8 +442,16 @@ export default function GalleryClient({ paintings = [], artists = [], galleryErr
         </div>
         {cart.length > 0 && <>
           <div className="mt-4 border-t border-[#D9C6A6] pt-4"><div className="flex justify-between text-sm"><span>Artwork Subtotal</span><b>{inr(subtotal)}</b></div><div className="mt-2 flex justify-between text-sm"><span>Insured Courier Shipping</span><b>{rates.length > 0 ? inr(shippingTotal) : 'Calculate at checkout'}</b></div><div className="mt-3 flex justify-between border-t border-[#D9C6A6] pt-3 font-semibold"><span>Total Payable</span><span className="text-clay">{rates.length > 0 ? inr(total) : 'Calculate shipping first'}</span></div></div>
-          <div className="mt-4 rounded-2xl border border-[#D9C6A6] bg-[#F3ECE1] p-4"><p className="eyebrow">Delivering to</p><p className="mt-2 text-sm font-semibold">{profile.full_name} · +91 {profile.phone}</p><p className="mt-1 text-xs leading-5 text-muted">{profile.address}, {profile.landmark}, {profile.locality}, {profile.city}, {profile.state} — {profile.pincode}</p><a href="/account" className="mt-2 inline-block text-[10px] font-bold uppercase tracking-wider text-clay underline">Edit in My Details</a></div>
-          <form onSubmit={fetchRates} className="mt-4"><button disabled={busy} className="btn-secondary inline-flex w-full items-center justify-center gap-2">{busy ? 'Checking…' : 'Calculate delivery rates'} <MapPin size={15}/></button></form>
+          <div className="mt-4 rounded-2xl border border-[#D9C6A6] bg-[#F3ECE1] p-4">
+            <div className="flex items-center justify-between gap-3"><p className="eyebrow">Delivering to</p><button type="button" onClick={refreshSavedAddress} disabled={loadingSavedAddress} className="text-[9px] font-bold uppercase tracking-wider text-clay underline disabled:opacity-50">{loadingSavedAddress ? 'Refreshing…' : 'Refresh saved address'}</button></div>
+            {loadingSavedAddress && !profile.full_name && !profile.address && !profile.pincode ? <p className="mt-3 text-xs text-muted">Loading saved delivery address…</p> : <>
+              <p className="mt-2 text-sm font-semibold">{[profile.full_name, profile.phone ? (String(profile.phone).startsWith('+91') ? profile.phone : `+91 ${profile.phone}`) : ''].filter(Boolean).join(' · ') || 'Delivery contact not saved yet.'}</p>
+              <p className="mt-1 text-xs leading-5 text-muted">{[profile.address, profile.landmark, profile.locality, profile.city, profile.state].filter(Boolean).join(', ') || 'Add your street address in My Details.'}</p>
+            </>}
+            <label className="mt-3 block"><span className="text-[9px] font-bold uppercase tracking-wider text-muted">Delivery PIN Code</span><input type="text" inputMode="numeric" autoComplete="postal-code" maxLength={6} pattern="[0-9]{6}" value={profile.pincode} onChange={(event) => updateProfile({ pincode: event.target.value })} placeholder="Enter 6-digit PIN code" className="field mt-1 w-full" aria-label="Delivery PIN Code" /></label>
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2"><a href="/account" className="text-[10px] font-bold uppercase tracking-wider text-clay underline">Edit in My Details</a><span className="text-[9px] text-muted">Courier rates update automatically when the PIN is valid.</span></div>
+          </div>
+          <form onSubmit={fetchRates} className="mt-4"><button type="submit" disabled={ratesBusy || !/^\d{6}$/.test(String(profile.pincode || ''))} className="btn-secondary inline-flex w-full items-center justify-center gap-2">{ratesBusy ? 'Checking…' : 'Recalculate delivery rates'} <MapPin size={15}/></button></form>
           {rates.length > 0 && <div className="mt-4"><h3 className="font-display text-2xl">Choose a delivery option for each Artist studio</h3><div className="mt-3 grid gap-4">{rates.map((group) => <section key={group.groupKey} className="rounded-2xl border border-[#D9C6A6] bg-[#F3ECE1] p-4"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div><b className="font-display text-xl">{group.artistName}</b><p className="text-[10px] text-muted">{group.itemCount} artwork(s) from this Artist studio</p></div><span className="pill">Artist studio</span></div><div className="grid gap-2">{group.couriers.map((rate) => <label key={rate.courier_company_id} className={`flex cursor-pointer items-center justify-between rounded-xl border p-3 ${chosen[group.groupKey]?.courier_company_id === rate.courier_company_id ? 'border-clay bg-[#f7eee6]' : 'border-[#D9C6A6]'}`}><span className="flex items-center gap-2"><input type="radio" name={`courier-${group.groupKey}`} checked={chosen[group.groupKey]?.courier_company_id === rate.courier_company_id} onChange={() => setChosen((current) => ({ ...current, [group.groupKey]: rate }))} /><span><b className="block text-sm">{rate.courier_name}</b><small className="block text-muted">{rate.description || rate.etd || 'Delivery estimate unavailable'}</small>{rate.delivery_mode === 'shiprocket' ? <small className="text-[9px] text-muted">Live Shiprocket base rate · no Artiste markup</small> : <small className="text-[9px] text-muted">Low-cost zone fallback · manually coordinated delivery</small>}</span></span><b className="whitespace-nowrap text-green-800">{inr(rate.rate)}</b></label>)}</div></section>)}</div><button onClick={checkout} disabled={busy || rates.some((group) => !chosen[group.groupKey])} className="btn-primary mt-4 w-full">{busy ? 'Processing…' : `Pay ${inr(total)} with Razorpay`} <IndianRupee size={15}/></button><p className="mt-3 text-center text-[9px] leading-5 text-muted">Courier shipping is charged separately from the artwork price. Live Shiprocket base rates are shown without an Artiste platform markup; fallback delivery quotes are used only when live serviceability is unavailable.</p></div>}
         </>}
       </>}
