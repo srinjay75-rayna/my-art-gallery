@@ -34,7 +34,7 @@ export async function GET(request) {
     let payoutAccount = null;
     if (artist) {
       const [{ data: payouts, error: payoutError }, { data: payout, error: payoutAccountError }] = await Promise.all([
-        supabase.from('artist_payouts').select('id,order_id,order_ref,artist_name,creator_role,commission_rate,gross_amount,platform_fee,artist_payout,payout_status,paid_at,created_at').eq('artist_id', artist.id).order('created_at', { ascending: false }),
+        supabase.from('artist_payouts').select('id,order_id,order_ref,artist_name,creator_role,commission_rate,gross_amount,platform_fee,artist_payout,payout_status,paid_at,delivered_at,payout_available_at,created_at').eq('artist_id', artist.id).order('created_at', { ascending: false }),
         supabase.from('artist_payout_accounts').select('artist_id,account_holder_name,bank_account_number_masked,ifsc_code,bank_name,branch_name,upi_id,verified_at,updated_at').eq('artist_id', artist.id).maybeSingle(),
       ]);
       if (payoutError) throw payoutError;
@@ -45,7 +45,7 @@ export async function GET(request) {
       const profileComplete = Boolean(artist.artist_name && artist.bio && artist.pickup_address && artist.pickup_phone && artist.pickup_landmark && artist.pickup_locality && artist.city && artist.state && /^\d{6}$/.test(String(artist.pickup_pincode || '')));
       // Automatically activate complete, IFSC-verified studios. The explicit
       // owner-controlled is_suspended flag always takes precedence.
-      if (profileComplete && payoutAccount?.verified_at && !artist.is_suspended && !artist.is_approved) {
+      if (profileComplete && !artist.is_suspended && !artist.is_approved) {
         const { data: activated, error: activateError } = await supabase.from('artists').update({ approved: true, is_approved: true }).eq('id', artist.id).eq('is_suspended', false).select('*').single();
         if (activateError) throw activateError;
         artist = activated;
@@ -106,6 +106,8 @@ export async function POST(request) {
       user_id: user.id,
       email: String(user.email || '').toLowerCase(),
       phone: `+91${pickupPhoneDigits}`,
+      whatsapp_number: String(form.get('whatsapp_number') || pickupPhoneDigits).trim(),
+      instagram_handle: String(form.get('instagram_handle') || '').trim().replace(/^@/, ''),
       artist_name: artistName,
       creator_role: creatorRole,
       bio,
@@ -121,17 +123,14 @@ export async function POST(request) {
       pickup_pincode: pickupPincode,
       pickup_location: pickupLocation,
       is_suspended: Boolean(existing?.is_suspended),
-      // The payout-account endpoint activates the Artist as soon as the
-      // profile and verified bank details are both complete.
-      approved: Boolean((existing?.approved || existing?.is_approved) && !existing?.is_suspended),
-      is_approved: Boolean((existing?.is_approved || existing?.approved) && !existing?.is_suspended),
+      // A complete studio profile activates independently of optional bank details.
+      approved: !existing?.is_suspended,
+      is_approved: !existing?.is_suspended,
     };
     const { data: saved, error } = await supabase.from('artists').upsert(row, { onConflict: 'user_id,creator_role' }).select('*').single();
     if (error) throw error;
     let data = saved;
-    const { data: payoutStatus, error: payoutStatusError } = await supabase.from('artist_payout_accounts').select('verified_at').eq('artist_id', saved.id).maybeSingle();
-    if (payoutStatusError) throw payoutStatusError;
-    if (payoutStatus?.verified_at && !saved.is_suspended) {
+    if (!saved.is_suspended && !saved.is_approved) {
       const { data: activated, error: activateError } = await supabase.from('artists').update({ approved: true, is_approved: true }).eq('id', saved.id).eq('is_suspended', false).select('*').single();
       if (activateError) throw activateError;
       data = activated;
@@ -152,7 +151,7 @@ export async function POST(request) {
       ? 'Your Artist profile details were saved. Your studio is currently suspended by the Artiste owner.'
       : data.is_approved
         ? 'Your Artist studio is active. You can publish artwork immediately.'
-        : 'Artist profile saved. Complete your IFSC-verified payout details to activate your studio.';
+        : 'Artist profile saved. Your studio is active; bank details can be added later from Studio Profile.';
     return NextResponse.json({ artist: { ...data, avatar_url: data.avatar_url || data.profile_photo_url || '' }, message }, { status: 201 });
   } catch (error) {
     if (uploaded) { try { await requireServiceRole().storage.from('artist-profiles').remove([uploaded]); } catch {} }

@@ -40,9 +40,9 @@ export async function POST(request) {
   try {
     const body = await request.json();
     const user = await getUserFromRequest(request, { accountType: 'customer' });
-    const ids = Array.isArray(body.items)
-      ? [...new Set(body.items.map((item) => String(item.paintingId || item.id || '').trim()))]
-      : [String(body.paintingId || '').trim()];
+    const requestedItems = Array.isArray(body.items) ? body.items : [{ paintingId: body.paintingId || '' }];
+    const ids = [...new Set(requestedItems.map((item) => String(item.paintingId || item.id || '').trim()))];
+    const archivalPrintById = new Map(requestedItems.map((item) => [String(item.paintingId || item.id || '').trim(), Boolean(item.archival_print_requested)]));
     if (!ids.length || ids.length > 20 || ids.some((id) => !/^[0-9a-f-]{20,40}$/i.test(id))) {
       return NextResponse.json({ error: 'Your cart is empty or contains an invalid artwork.' }, { status: 400 });
     }
@@ -51,7 +51,7 @@ export async function POST(request) {
     const [{ data: profile, error: profileError }, { data: paintings, error: paintingError }] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
       supabase.from('paintings')
-        .select('id,title,medium,dimensions,price,weight_kg,length_cm,breadth_cm,height_cm,image_url,is_sold,is_approved,stock_quantity,artist_id,artist_name,category,edition_details,print_details')
+        .select('id,title,medium,dimensions,price,weight_kg,length_cm,breadth_cm,height_cm,image_url,is_sold,is_approved,stock_quantity,artist_id,artist_name,category,edition_details,print_details,description,framed_status,certificate_id,gallery_images')
         .in('id', ids).eq('is_sold', false).gt('stock_quantity', 0).eq('is_approved', true),
     ]);
     if (profileError) throw profileError;
@@ -64,7 +64,7 @@ export async function POST(request) {
     const artistIds = [...new Set(paintings.map((painting) => painting.artist_id).filter(Boolean))];
     const paintingIds = paintings.map((painting) => painting.id);
     const [{ data: artists, error: artistsError }, { data: payoutAccounts, error: payoutError }, { data: legacyOrigins, error: originError }] = await Promise.all([
-      artistIds.length ? supabase.from('artists').select('id,user_id,artist_name,creator_role,is_approved,pickup_contact_name,pickup_phone,pickup_address,pickup_landmark,pickup_locality,city,state,pickup_pincode,pickup_location').in('id', artistIds) : Promise.resolve({ data: [], error: null }),
+      artistIds.length ? supabase.from('artists').select('id,user_id,artist_name,creator_role,is_approved,is_founding_artist,pickup_contact_name,pickup_phone,pickup_address,pickup_landmark,pickup_locality,city,state,pickup_pincode,pickup_location').in('id', artistIds) : Promise.resolve({ data: [], error: null }),
       artistIds.length ? supabase.from('artist_payout_accounts').select('artist_id,account_holder_name,bank_account_number_encrypted,bank_account_number_masked,ifsc_code,bank_name,branch_name,upi_id,verified_at').in('artist_id', artistIds) : Promise.resolve({ data: [], error: null }),
       supabase.from('painting_shipping_origins').select('painting_id,pickup_pincode,pickup_location').in('painting_id', paintingIds),
     ]);
@@ -80,19 +80,20 @@ export async function POST(request) {
       if (painting.artist_id) {
         const artist = artistMap.get(painting.artist_id);
         if (!artist || !artist.is_approved) throw new Error(`The Artist profile for “${painting.title}” is not currently approved.`);
-        const payout = payoutMap.get(painting.artist_id);
-        if (!payout?.verified_at) throw new Error(`The Artist “${artist.artist_name}” must complete verified payout details before their artwork can be purchased. Please contact Artiste support.`);
+        const payout = payoutMap.get(painting.artist_id) || null;
         if (!/^\d{6}$/.test(String(artist.pickup_pincode || ''))) throw new Error(`The Artist “${artist.artist_name}” has not completed a valid pickup PIN code.`);
         return {
           ...painting,
           artist_name: artist.artist_name,
           creator_role: artist.creator_role || 'Painter',
+          is_founding_artist: Boolean(artist.is_founding_artist),
           pickup_pincode: artist.pickup_pincode,
           pickup_location: artist.pickup_location || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary',
           dispatchSnapshot: {
             artist_id: artist.id,
             artist_name: artist.artist_name,
             creator_role: artist.creator_role || 'Painter',
+            is_founding_artist: Boolean(artist.is_founding_artist),
             pickup_contact_name: artist.pickup_contact_name,
             pickup_phone: artist.pickup_phone,
             pickup_address: artist.pickup_address,
@@ -102,7 +103,7 @@ export async function POST(request) {
             pickup_state: artist.state,
             pickup_pincode: artist.pickup_pincode,
             pickup_location: artist.pickup_location || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary',
-            payout_info: {
+            payout_info: payout?.verified_at ? {
               account_holder_name: payout.account_holder_name,
               bank_account_number_encrypted: payout.bank_account_number_encrypted,
               bank_account_number_masked: payout.bank_account_number_masked,
@@ -111,7 +112,7 @@ export async function POST(request) {
               branch_name: payout.branch_name,
               upi_id: payout.upi_id,
               verified_at: payout.verified_at,
-            },
+            } : {},
           },
         };
       }
@@ -172,13 +173,16 @@ export async function POST(request) {
     const orderItems = enrichedPaintings.map((painting) => {
       const price = money(painting.price);
       const creatorRole = painting.creator_role === 'Photographer' ? 'Photographer' : 'Painter';
-      const commissionRate = creatorRole === 'Photographer' ? 0.10 : 0.15;
+      const commissionRate = painting.is_founding_artist ? 0.20 : 0.30;
       const platformFee = money(price * commissionRate);
       return {
         id: painting.id,
         title: painting.title,
         medium: painting.medium,
         dimensions: painting.dimensions,
+        description: painting.description || '',
+        framed_status: painting.framed_status || 'Unframed',
+        certificate_id: painting.certificate_id || '',
         price,
         platform_fee: platformFee,
         artist_payout: money(price - platformFee),
@@ -186,16 +190,18 @@ export async function POST(request) {
         artist_id: painting.artist_id,
         artist_name: painting.artist_name || 'Artiste Studio',
         creator_role: creatorRole,
+        is_founding_artist: Boolean(painting.is_founding_artist),
         commission_rate: commissionRate,
         category: painting.category || 'Painting',
         edition_details: painting.edition_details || '',
         print_details: painting.print_details || '',
+        archival_print_requested: Boolean(archivalPrintById.get(String(painting.id))),
         quantity: 1,
       };
     });
     const platformFee = money(orderItems.reduce((sum, item) => sum + item.platform_fee, 0));
     const artistPayout = money(orderItems.reduce((sum, item) => sum + item.artist_payout, 0));
-    const totalAmount = money(artworkPrice + shippingAmount);
+    const totalAmount = artworkPrice;
     const amountPaise = Math.round(totalAmount * 100);
     if (!Number.isSafeInteger(amountPaise) || amountPaise < 100 || amountPaise > 100000000) return NextResponse.json({ error: 'The payable amount is invalid.' }, { status: 400 });
 
@@ -232,8 +238,10 @@ export async function POST(request) {
       state: profile.state,
       pincode: profile.pincode,
       artwork_price: artworkPrice,
-      shipping_price: shippingAmount,
-      shipping_amount: shippingAmount,
+      shipping_price: 0,
+      shipping_amount: 0,
+      courier_cost: shippingAmount,
+      shipping_included: true,
       total_amount: totalAmount,
       platform_fee: platformFee,
       artist_payout: artistPayout,
@@ -268,7 +276,7 @@ export async function POST(request) {
       currency: 'INR',
       keyId,
       artworkPrice,
-      shippingAmount,
+      shippingAmount: 0,
       totalAmount,
       shipmentCount: shipmentRows.length,
     });

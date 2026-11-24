@@ -84,7 +84,8 @@ export default function OrderDocument({ mode = 'invoice' }) {
   const customerAddress = [order.shipping_address, order.landmark, order.locality, order.city, order.state, order.pincode].filter(Boolean).join(', ');
   const displayItems = isPackingSlip && role === 'artist' && shipments[0]?.items?.length ? shipments[0].items : items;
   const displayShipping = shipments.reduce((sum, s) => sum + Number(s.shipping_amount || 0), 0);
-  const invoiceShipping = Number(order.shipping_amount ?? displayShipping);
+  const shippingIncluded = order.shipping_included === true;
+  const invoiceShipping = shippingIncluded ? 0 : Number(order.shipping_amount ?? displayShipping);
   const invoiceTotal = Number(order.total_amount || (Number(order.artwork_price || 0) + invoiceShipping));
   const packing = shipments[0] || null;
 
@@ -105,7 +106,7 @@ export default function OrderDocument({ mode = 'invoice' }) {
       <div className="mt-6 grid gap-5 md:grid-cols-2"><section className="rounded-xl bg-[#f8f4ed] p-4"><p className="text-[10px] font-bold uppercase tracking-widest text-[#8a5a47]">Billed to / Customer</p><p className="mt-2 font-semibold">{order.customer_name}</p><p className="text-xs leading-5">{order.customer_phone}<br/>{order.customer_email}</p></section><section className="rounded-xl bg-[#f8f4ed] p-4"><p className="text-[10px] font-bold uppercase tracking-widest text-[#8a5a47]">Delivery address</p><p className="mt-2 text-xs leading-5">{customerAddress}</p><p className="mt-2 text-xs"><b>Courier / Shipping mode:</b> {courierText}</p></section></div>
       <div className="mt-5 rounded-xl border border-[#e7e0d7] px-4 py-3 text-xs"><b>Razorpay payment reference:</b> <span className="break-all">{order.razorpay_payment_id || 'Not available'}</span></div>
       <div className="mt-6 overflow-x-auto">
-        <table className="w-full min-w-[920px] border-collapse text-left text-sm">
+        <table className="w-full min-w-[720px] border-collapse text-left text-sm">
           <thead>
             <tr className="border-y-2 border-[#bdb2a4] bg-[#f4efe7] text-[10px] uppercase tracking-wider">
               <th className="p-3">Sl. No.</th>
@@ -114,8 +115,6 @@ export default function OrderDocument({ mode = 'invoice' }) {
               <th className="p-3 text-right">Qty</th>
               <th className="p-3 text-right">Unit Rate (₹)</th>
               <th className="p-3 text-right">Amount (₹)</th>
-              <th className="p-3 text-right">Artiste Fee</th>
-              <th className="p-3 text-right">Creator Net</th>
             </tr>
           </thead>
           <tbody>
@@ -125,9 +124,6 @@ export default function OrderDocument({ mode = 'invoice' }) {
               const isPhotography =
                 item.category === 'Photography' ||
                 /photo/i.test(`${item.category || ''} ${item.medium || ''}`);
-              const feeRate = item.creator_role === 'Photographer' ? 0.10 : 0.15;
-              const fee = amount * feeRate;
-              const payout = amount - fee;
               return (
                 <tr key={item.id || index} className="border-b border-[#e7e0d7]">
                   <td className="p-3">{index + 1}</td>
@@ -139,6 +135,8 @@ export default function OrderDocument({ mode = 'invoice' }) {
                       {' · '}{isPhotography ? 'Fine-Art Photography' : 'Original Painting'}
                       {item.medium ? ` · ${item.medium}` : ''}
                       {item.dimensions ? ` · ${item.dimensions}` : ''}
+                      {item.framed_status ? ` · ${item.framed_status}` : ''}
+                      {item.archival_print_requested ? ' · Made-to-Order Archival Print requested' : ''}
                       {item.edition_details ? ` · ${item.edition_details}` : ''}
                       {item.print_details ? ` · ${item.print_details}` : ''}
                     </p>
@@ -147,36 +145,31 @@ export default function OrderDocument({ mode = 'invoice' }) {
                   <td className="p-3 text-right">{quantity}</td>
                   <td className="p-3 text-right">{amountInr(item.price)}</td>
                   <td className="p-3 text-right">{amountInr(amount)}</td>
-                  <td className="p-3 text-right">{amountInr(fee)} ({Math.round(feeRate * 100)}%)</td>
-                  <td className="p-3 text-right">{amountInr(payout)} ({Math.round((1 - feeRate) * 100)}%)</td>
                 </tr>
               );
             })}
           </tbody>
           <tfoot>
             <tr className="border-b border-[#e7e0d7]">
-              <td className="p-3" colSpan="7">Artwork subtotal</td>
+              <td className="p-3" colSpan="5">Artwork subtotal</td>
               <td className="p-3 text-right">{amountInr(order.artwork_price)}</td>
             </tr>
             <tr className="border-b border-[#e7e0d7]">
-              <td className="p-3" colSpan="7">Shipping &amp; Handling Charges (₹)</td>
-              <td className="p-3 text-right">{amountInr(invoiceShipping)}</td>
+              <td className="p-3" colSpan="5">{shippingIncluded ? 'Insured Doorstep Delivery (included)' : 'Shipping &amp; Handling Charges (₹)'}</td>
+              <td className="p-3 text-right">{shippingIncluded ? 'Included' : amountInr(invoiceShipping)}</td>
             </tr>
             <tr className="border-b border-[#e7e0d7]">
-              <td className="p-3" colSpan="7">Tax / GST (₹0.00 — Non-GST)</td>
+              <td className="p-3" colSpan="5">Tax / GST (₹0.00 — Non-GST)</td>
               <td className="p-3 text-right">0.00</td>
             </tr>
             <tr className="bg-[#f4efe7] text-base font-bold">
-              <td className="p-3" colSpan="7">Grand Total Paid (₹)</td>
+              <td className="p-3" colSpan="5">Grand Total Paid (₹)</td>
               <td className="p-3 text-right">{amountInr(invoiceTotal)}</td>
             </tr>
           </tfoot>
         </table>
       </div>
-      <p className="mt-2 text-[9px] leading-5 text-[#74685e]">
-        Creator settlement figures are shown for transparency: Painters receive 85% (15% Artiste fee); Photographers receive 90% (10% Artiste fee). These settlement allocations do not change the customer amount paid.
-      </p>
-      {shipments.length > 0 && <section className="mt-6"><h2 className="font-display text-xl">Shiprocket shipping breakdown</h2><table className="mt-2 w-full border-collapse text-sm"><thead><tr className="border-y border-[#bdb2a4] text-[10px] uppercase tracking-wider"><th className="p-2 text-left">Pickup studio / courier</th><th className="p-2 text-left">Shipment / AWB</th><th className="p-2 text-right">Shipping (₹)</th></tr></thead><tbody>{shipments.map((shipment, index) => <tr key={shipment.id || index} className="border-b border-[#e7e0d7]"><td className="p-2"><b>{shipment.artist_name || 'Creator studio'}</b><p className="text-xs text-[#74685e]">{shipment.courier_name || 'Courier / local arrangement'} · {shipment.shipment_status || 'Pending'}</p></td><td className="p-2 break-all text-xs">{shipment.awb_code || shipment.shiprocket_shipment_id || 'Awaiting dispatch'}</td><td className="p-2 text-right">{amountInr(shipment.shipping_amount)}</td></tr>)}</tbody><tfoot><tr className="bg-[#f4efe7] font-semibold"><td className="p-2" colSpan="2">Total shipping collected</td><td className="p-2 text-right">{amountInr(invoiceShipping)}</td></tr></tfoot></table></section>}
+      {shipments.length > 0 && <section className="mt-6"><h2 className="font-display text-xl">Delivery tracking</h2><table className="mt-2 w-full border-collapse text-sm"><thead><tr className="border-y border-[#bdb2a4] text-[10px] uppercase tracking-wider"><th className="p-2 text-left">Pickup studio / courier</th><th className="p-2 text-left">Shipment / AWB</th></tr></thead><tbody>{shipments.map((shipment, index) => <tr key={shipment.id || index} className="border-b border-[#e7e0d7]"><td className="p-2"><b>{shipment.artist_name || 'Creator studio'}</b><p className="text-xs text-[#74685e]">{shipment.courier_name || 'Courier / local arrangement'} · {shipment.shipment_status || 'Pending'}</p></td><td className="p-2 break-all text-xs">{shipment.awb_code || shipment.shiprocket_shipment_id || 'Awaiting dispatch'}</td></tr>)}</tbody></table></section>}
       <div className="mt-5 rounded-xl bg-[#f8f4ed] p-4"><p className="text-[10px] font-bold uppercase tracking-widest text-[#8a5a47]">Amount in words</p><p className="mt-2 text-sm font-semibold">{amountWords(invoiceTotal)}</p></div>
       <footer className="mt-9 flex flex-wrap items-end justify-between gap-5 border-t border-[#e7e0d7] pt-5 text-xs text-[#61574f]"><div><p className="font-semibold">Thank you for collecting original art.</p><p className="mt-1">This is a computer-generated non-GST Bill of Supply; no signature is required.</p><p className="mt-1">For support: {siteConfig.supportEmail} · {siteConfig.phoneNumber}</p></div><div className="text-right"><p className="font-display text-lg">Artiste</p><p className="text-[9px] uppercase tracking-widest">Where Every Canvas Carries a Soul · Love & Human Connection Across India</p></div></footer>
     </article>}

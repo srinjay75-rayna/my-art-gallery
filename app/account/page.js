@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -38,32 +37,11 @@ const money = (v) => new Intl.NumberFormat('en-IN', {
   maximumFractionDigits: 0,
 }).format(Number(v || 0));
 
-const complete = (p) => {
-  const digits = String(p?.phone || '').replace(/\D/g, '');
-
-  const validPhone =
-    digits.length === 10 ||
-    (digits.length === 12 && digits.startsWith('91'));
-
-  return Boolean(
-    p?.full_name &&
-    validPhone &&
-    p.address &&
-    p.landmark &&
-    p.locality &&
-    p.city &&
-    p.state &&
-    /^\d{6}$/.test(String(p.pincode || ''))
-  );
-};
-
 export default function AccountPage() {
-  const router = useRouter();
-
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(false);
-  const [tab, setTab] = useState('My Orders');
+  const [tab, setTab] = useState('My Details');
   const [profile, setProfile] = useState(blank);
   const [savedProfile, setSavedProfile] = useState(blank);
   const [orders, setOrders] = useState([]);
@@ -147,29 +125,14 @@ export default function AccountPage() {
       setSavedProfile(nextProfile);
       setOrders(data.orders || []);
 
-      if (complete(nextProfile)) {
-        setEditingAddress(false);
-      }
+      setEditingAddress(false);
 
-      if (!complete(nextProfile)) {
-        router.replace('/account/onboarding');
-        return;
-      }
-
-      try {
-        if (localStorage.getItem('artiste_pending_cart')) {
-          router.replace('/');
-          return;
-        }
-      } catch {
-        // Ignore localStorage restrictions.
-      }
     } catch (err) {
       setError(err.message);
     } finally {
       setProfileLoading(false);
     }
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     if (session?.user?.id) {

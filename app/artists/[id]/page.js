@@ -27,7 +27,7 @@ export default async function ArtistCollectionPage({ params }) {
   if (!artist) notFound();
   artist.creator_role = artist.creator_role === 'Photographer' ? 'Photographer' : 'Painter';
 
-  const fullColumns = 'id,title,medium,dimensions,price,weight_kg,length_cm,breadth_cm,height_cm,image_url,is_sold,artist_id,artist_name,avatar_url,is_approved,category,stock_quantity,edition_details,print_details,created_at';
+  const fullColumns = 'id,title,medium,dimensions,price,weight_kg,length_cm,breadth_cm,height_cm,image_url,is_sold,artist_id,artist_name,avatar_url,is_approved,category,stock_quantity,edition_details,print_details,gallery_images,framed_status,certificate_id,description,created_at';
   const legacyColumns = 'id,title,medium,dimensions,price,image_url,is_sold,artist_id,artist_name,avatar_url,is_approved,created_at';
   // Retry with the core legacy projection if an older database has not yet
   // applied one of the optional photography / stock columns.
@@ -41,7 +41,7 @@ export default async function ArtistCollectionPage({ params }) {
     ]);
     let [byArtistId, byArtistName] = await queryWorks(fullColumns);
     const combinedError = byArtistId.error || byArtistName.error;
-    if (combinedError && /stock_quantity|edition_details|print_details|category|weight_kg|length_cm|breadth_cm|height_cm|schema cache|does not exist/i.test(combinedError.message || '')) {
+    if (combinedError && /stock_quantity|edition_details|print_details|gallery_images|framed_status|certificate_id|description|category|weight_kg|length_cm|breadth_cm|height_cm|schema cache|does not exist/i.test(combinedError.message || '')) {
       [byArtistId, byArtistName] = await queryWorks(legacyColumns);
     }
     if (byArtistId.error) throw byArtistId.error;
@@ -57,6 +57,10 @@ export default async function ArtistCollectionPage({ params }) {
         stock_quantity: painting.stock_quantity == null ? (painting.is_sold ? 0 : 1) : Number(painting.stock_quantity),
         edition_details: painting.edition_details || '',
         print_details: painting.print_details || '',
+        gallery_images: Array.isArray(painting.gallery_images) ? painting.gallery_images : [painting.image_url].filter(Boolean),
+        framed_status: painting.framed_status || 'Unframed',
+        certificate_id: painting.certificate_id || '',
+        description: painting.description || '',
       }))
       .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
   } catch (error) {

@@ -15,7 +15,7 @@ export default async function PhotographyPage() {
 
   try {
     const { data, error } = await supabase.from('paintings')
-      .select('id,title,medium,dimensions,price,weight_kg,length_cm,breadth_cm,height_cm,image_url,is_sold,artist_id,artist_name,avatar_url,is_approved,category,stock_quantity,edition_details,print_details')
+      .select('id,title,medium,dimensions,price,weight_kg,length_cm,breadth_cm,height_cm,image_url,is_sold,artist_id,artist_name,avatar_url,is_approved,category,stock_quantity,edition_details,print_details,gallery_images,framed_status,certificate_id,description')
       .eq('is_sold', false)
       .gt('stock_quantity', 0)
       .eq('is_approved', true)

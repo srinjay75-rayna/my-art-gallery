@@ -65,6 +65,7 @@ export async function GET(request) {
       items: Array.isArray(order.items) ? order.items.map((item) => ({
         id: item.id, title: item.title, medium: item.medium, dimensions: item.dimensions,
         price: item.price, image_url: item.image_url, artist_name: item.artist_name,
+        archival_print_requested: Boolean(item.archival_print_requested), framed_status: item.framed_status || 'Unframed',
       })) : [],
     }));
     return NextResponse.json({ user: { id: user.id, email }, profile, orders: customerOrders });

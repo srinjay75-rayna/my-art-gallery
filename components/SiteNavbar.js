@@ -141,13 +141,15 @@ export default function SiteNavbar() {
     { label: 'Sell Art', href: '/artist' },
   ];
   const customerLinks = [
-    { label: 'My Profile & Address', href: '/account?tab=details', icon: MapPin },
-    { label: 'My Orders & Bills', href: '/account?tab=orders', icon: FileText },
+    { label: 'My Profile', href: '/account', icon: UserRound },
+    { label: 'Edit Details', href: '/account?tab=details', icon: MapPin },
+    { label: 'My Orders', href: '/account?tab=orders', icon: FileText },
   ];
   const creatorLinks = [
-    { label: 'Creator Studio & Stock', href: '/artist', icon: Store },
-    { label: 'My Sales & Payouts', href: '/artist#earnings', icon: Wallet },
-    { label: 'My Profile', href: '/artist#profile', icon: UserRound },
+    { label: 'Creator Studio', href: '/artist', icon: Store },
+    { label: 'Edit Details', href: '/artist#profile', icon: UserRound },
+    { label: 'My Profile', href: '/artist#profile', icon: MapPin },
+    { label: 'Sales & Payouts', href: '/artist#earnings', icon: Wallet },
   ];
 
   return (
@@ -195,7 +197,7 @@ export default function SiteNavbar() {
                       </Link>
                     ))}
                   </div>
-                  <button type="button" role="menuitem" onClick={signOut} className="flex w-full items-center gap-3 border-t border-[#D9C6A6]/70 px-4 py-3 text-left text-xs font-semibold text-[#B85D3B] transition hover:bg-[#F3ECE1]"><LogOut size={15}/>Sign Out</button>
+                  <button type="button" role="menuitem" onClick={signOut} className="flex w-full items-center gap-3 border-t border-[#D9C6A6]/70 px-4 py-3 text-left text-xs font-semibold text-[#B85D3B] transition hover:bg-[#F3ECE1]"><LogOut size={15}/>Log Out</button>
                 </> : <>
                   <p className="px-4 pb-2 pt-2 text-[9px] font-bold uppercase tracking-[.18em] text-[#8A7864]">Welcome to Artiste</p>
                   <Link href="/account" role="menuitem" onClick={() => setProfileOpen(false)} className="flex items-center gap-3 px-4 py-3 text-xs font-semibold text-[#45534B] transition hover:bg-[#F3ECE1] hover:text-[#B85D3B]"><UserRound size={15}/>Customer Sign In / Sign Up</Link>

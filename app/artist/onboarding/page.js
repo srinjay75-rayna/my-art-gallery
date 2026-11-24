@@ -97,7 +97,7 @@ export default function ArtistOnboardingPage() {
           setPayout((currentPayout) => ({ ...currentPayout, account_holder_name: dataResult.payoutAccount.account_holder_name || '', ifsc_code: dataResult.payoutAccount.ifsc_code || '', upi_id: dataResult.payoutAccount.upi_id || '' }));
           setVerifiedIfsc({ ifsc: dataResult.payoutAccount.ifsc_code, bank_name: dataResult.payoutAccount.bank_name, branch_name: dataResult.payoutAccount.branch_name });
         }
-        if (completeArtist(a) && dataResult.payoutAccount?.verified_at) router.replace('/artist');
+        if (completeArtist(a)) router.replace('/artist');
       } catch (err) { if (active) setError(err.message || 'Could not load Artist onboarding.'); }
       finally { if (active) setLoading(false); }
     }
@@ -125,8 +125,9 @@ export default function ArtistOnboardingPage() {
     if (!session) return;
     setBusy(true); setError(''); setNotice('');
     try {
-      if (!payoutReady && !verifiedIfsc) throw new Error('Verify your IFSC code before saving payout details.');
-      if (!payoutReady && payout.bank_account_number !== payout.confirm_bank_account_number) throw new Error('Bank account number and confirmation do not match.');
+      const hasPayoutInput = Boolean(payout.account_holder_name.trim() || payout.bank_account_number.trim() || payout.ifsc_code.trim() || payout.upi_id.trim());
+      if (hasPayoutInput && !payoutReady && !verifiedIfsc) throw new Error('To add bank details now, verify your IFSC code first. You may also leave all bank fields blank and add them later.');
+      if (hasPayoutInput && !payoutReady && payout.bank_account_number !== payout.confirm_bank_account_number) throw new Error('Bank account number and confirmation do not match.');
       if (!/^\d{10}$/.test(phoneDigits)) throw new Error('Enter or confirm your 10-digit Indian mobile number for studio pickup.');
 
       const form = new FormData();
@@ -149,7 +150,7 @@ export default function ArtistOnboardingPage() {
       if (!profileResponse.ok) throw new Error(profileData.error || 'Could not save Artist profile.');
       setArtist(profileData.artist);
 
-      if (!payoutReady) {
+      if (hasPayoutInput && !payoutReady) {
         const payoutResponse = await fetch('/api/artist/payout-account', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
@@ -169,7 +170,7 @@ export default function ArtistOnboardingPage() {
     <div className="mb-8 flex justify-end"><a href="/artist" className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-clay"><ArrowLeft size={14} /> Creator Portal</a></div>
     <p className="eyebrow flex items-center gap-2"><BadgeCheck size={14} /> Email verified · Step 2 of 2</p>
     <h1 className="mt-3 font-display text-5xl">Set up your <em className="font-normal text-clay">Creator studio.</em></h1>
-    <p className="mt-3 max-w-2xl text-sm leading-7 text-muted">Choose Painter or Photographer, then complete your creator profile, studio pickup details and IFSC-verified payout destination. Once saved, your Creator studio activates automatically and you can publish original work immediately.</p>
+    <p className="mt-3 max-w-2xl text-sm leading-7 text-muted">Choose Painter or Photographer, then complete your creator profile and studio pickup details. Bank details are completely optional during sign-up and can be added later in Studio Profile. Once saved, your Creator studio activates automatically and you can publish original work immediately.</p>
     <div className="mt-6 rounded-2xl border border-[#D9C6A6] bg-[#F3ECE1] p-4 text-sm"><p className="font-semibold">{artistName || 'Artist'} · {session?.user?.email}</p><p className="mt-1 text-xs text-muted">+91 {phoneDigits} · Studio &amp; payout information stays private.</p></div>
     {error && <p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}{notice && <p role="status" className="mt-5 rounded-xl bg-green-50 p-3 text-sm text-green-800">{notice}</p>}
     <form onSubmit={save} className="mt-6 grid gap-6">

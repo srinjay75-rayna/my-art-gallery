@@ -64,11 +64,7 @@ function cleanCustomerInvoice(root) {
 
   Array.from(root.querySelectorAll('p')).forEach((paragraph) => {
     const text = paragraph.textContent || '';
-    if (
-      /creator settlement figures/i.test(text) ||
-      /85%\s*\(/i.test(text) ||
-      /90%\s*\(/i.test(text)
-    ) {
+    if (/creator settlement figures/i.test(text)) {
       paragraph.remove();
     }
   });

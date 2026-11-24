@@ -264,6 +264,8 @@ alter table public.orders add column if not exists artist_payout numeric(12,2) n
 alter table public.orders add column if not exists shipping_amount numeric(12,2) not null default 0;
 alter table public.orders add column if not exists total_amount numeric(12,2) not null default 0;
 alter table public.orders add column if not exists payout_status text not null default 'Pending';
+alter table public.orders add column if not exists courier_cost numeric(12,2) not null default 0;
+alter table public.orders add column if not exists shipping_included boolean not null default false;
 alter table public.orders add column if not exists shipment_status text not null default 'Pending';
 alter table public.orders add column if not exists pickup_pincode text not null default '';
 alter table public.orders add column if not exists pickup_location text not null default 'Primary';
@@ -332,7 +334,7 @@ create table if not exists public.artist_payouts (
   platform_fee numeric(12,2) not null default 0,
   artist_payout numeric(12,2) not null default 0,
   creator_role text not null default 'Painter',
-  commission_rate numeric(5,4) not null default 0.0200,
+  commission_rate numeric(5,4) not null default 0.3000,
   payout_status text not null default 'Pending' check (payout_status in ('Pending', 'Paid')),
   paid_at timestamptz,
   created_at timestamptz not null default now(),
@@ -346,7 +348,7 @@ alter table public.artist_payouts add column if not exists gross_amount numeric(
 alter table public.artist_payouts add column if not exists platform_fee numeric(12,2) not null default 0;
 alter table public.artist_payouts add column if not exists artist_payout numeric(12,2) not null default 0;
 alter table public.artist_payouts add column if not exists creator_role text not null default 'Painter';
-alter table public.artist_payouts add column if not exists commission_rate numeric(5,4) not null default 0.0200;
+alter table public.artist_payouts add column if not exists commission_rate numeric(5,4) not null default 0.3000;
 alter table public.artist_payouts add column if not exists payout_status text not null default 'Pending';
 alter table public.artist_payouts add column if not exists paid_at timestamptz;
 alter table public.artist_payouts add column if not exists created_at timestamptz not null default now();
@@ -559,11 +561,14 @@ language plpgsql
 security definer
 set search_path = public
 as $$
-declare target_order uuid; updated_count integer;
+declare target_order uuid; updated_count integer; eligible_at timestamptz;
 begin
   if p_status not in ('Pending', 'Paid') then return false; end if;
-  select order_id into target_order from public.artist_payouts where id = p_payout_id for update;
+  select order_id, payout_available_at into target_order, eligible_at from public.artist_payouts where id = p_payout_id for update;
   if target_order is null then return false; end if;
+  if p_status = 'Paid' and (eligible_at is null or eligible_at > now()) then
+    raise exception 'Artist payout becomes eligible 48 hours after the shipment is marked Delivered.';
+  end if;
   update public.artist_payouts set payout_status = p_status, paid_at = case when p_status = 'Paid' then coalesce(paid_at, now()) else null end where id = p_payout_id;
   select count(*) into updated_count from public.artist_payouts where order_id = target_order and payout_status <> 'Paid';
   update public.orders set payout_status = case when updated_count = 0 then 'Paid' else 'Pending' end where id = target_order;
@@ -959,10 +964,10 @@ end $$;
 create index if not exists paintings_stock_available_idx on public.paintings(is_approved, stock_quantity, created_at desc);
 
 alter table public.artist_payouts add column if not exists creator_role text not null default 'Painter';
-alter table public.artist_payouts add column if not exists commission_rate numeric(5,4) not null default 0.0200;
+alter table public.artist_payouts add column if not exists commission_rate numeric(5,4) not null default 0.3000;
 update public.artist_payouts ap set
   creator_role = coalesce(a.creator_role, 'Painter'),
-  commission_rate = case when a.creator_role = 'Photographer' then 0.0500 else 0.0200 end
+  commission_rate = 0.3000
 from public.artists a where ap.artist_id = a.id;
 
 -- Store a stable Bill of Supply number on the paid order itself. The sequence is
@@ -1131,3 +1136,178 @@ $$;
 revoke all on function public.consume_api_rate_limit(text, integer, integer) from public, anon, authenticated;
 grant execute on function public.consume_api_rate_limit(text, integer, integer) to service_role;
 
+
+-- -----------------------------------------------------------------------------
+-- Artiste V15: founder status, optional payout onboarding, applications,
+-- multi-image artworks, presentation metadata and delivery-based payout dates.
+-- This section is additive and safe to re-run.
+-- -----------------------------------------------------------------------------
+
+-- Optional artist profile fields may be left blank during registration.
+alter table public.artists alter column email drop not null;
+alter table public.artists alter column email set default '';
+alter table public.artists alter column profile_photo_url drop not null;
+alter table public.artists alter column profile_photo_url set default '';
+alter table public.artists alter column avatar_url drop not null;
+alter table public.artists alter column avatar_url set default '';
+alter table public.artists alter column bio drop not null;
+alter table public.artists alter column bio set default '';
+alter table public.artists alter column city drop not null;
+alter table public.artists alter column city set default '';
+alter table public.artists alter column state drop not null;
+alter table public.artists alter column state set default '';
+alter table public.artists alter column pickup_address drop not null;
+alter table public.artists alter column pickup_address set default '';
+alter table public.artists alter column pickup_contact_name drop not null;
+alter table public.artists alter column pickup_contact_name set default '';
+alter table public.artists alter column pickup_phone drop not null;
+alter table public.artists alter column pickup_phone set default '';
+alter table public.artists alter column pickup_landmark drop not null;
+alter table public.artists alter column pickup_landmark set default '';
+alter table public.artists alter column pickup_locality drop not null;
+alter table public.artists alter column pickup_locality set default '';
+alter table public.artists alter column pickup_pincode drop not null;
+alter table public.artists alter column pickup_pincode set default '';
+alter table public.artists alter column pickup_location drop not null;
+alter table public.artists alter column pickup_location set default 'Primary';
+
+alter table public.artists add column if not exists approved boolean not null default false;
+alter table public.artists add column if not exists phone text default '';
+alter table public.artists alter column phone drop not null;
+alter table public.artists alter column phone set default '';
+alter table public.artists add column if not exists is_founding_artist boolean not null default false;
+alter table public.artists add column if not exists instagram_handle text default '';
+alter table public.artists add column if not exists whatsapp_number text default '';
+alter table public.artists add column if not exists latest_application_id uuid;
+
+-- The original first ten registered profiles receive the founding designation.
+-- This backfill is deliberately skipped when any founder designation already exists.
+do $$
+begin
+  if not exists (select 1 from public.artists where is_founding_artist = true) then
+    update public.artists
+      set is_founding_artist = true
+      where id in (
+        select id from public.artists
+        order by created_at asc nulls last, id asc
+        limit 10
+      );
+  end if;
+end;
+$$;
+
+create or replace function public.artiste_assign_initial_founding_artist()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  registered_count integer;
+begin
+  perform pg_advisory_xact_lock(hashtext('artiste_initial_founding_artist_slots'));
+  select count(*) into registered_count from public.artists;
+  if registered_count < 10 and new.is_founding_artist is not true then
+    new.is_founding_artist := true;
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists artiste_initial_founding_artist on public.artists;
+create trigger artiste_initial_founding_artist
+  before insert on public.artists
+  for each row execute function public.artiste_assign_initial_founding_artist();
+
+alter table public.paintings add column if not exists gallery_images jsonb default '[]'::jsonb;
+alter table public.paintings add column if not exists framed_status text default 'Unframed';
+alter table public.paintings add column if not exists dimensions text default '';
+alter table public.paintings add column if not exists certificate_id text default '';
+alter table public.paintings add column if not exists description text default '';
+update public.paintings set gallery_images = jsonb_build_array(image_url)
+where (gallery_images is null or gallery_images = '[]'::jsonb) and coalesce(image_url, '') <> '';
+update public.paintings set framed_status = 'Unframed' where coalesce(framed_status, '') = '';
+update public.paintings set certificate_id = 'ART-COA-' || upper(substr(replace(id::text, '-', ''), 1, 12))
+where coalesce(certificate_id, '') = '';
+
+create table if not exists public.artist_applications (
+  id uuid primary key default gen_random_uuid(),
+  artist_id uuid not null references public.artists(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  full_name text not null,
+  studio_name text not null,
+  whatsapp_number text not null,
+  instagram_handle text not null default '',
+  city text not null,
+  pincode text not null,
+  art_style_bio text not null,
+  artwork_title text not null,
+  artwork_medium text not null,
+  artwork_dimensions text not null,
+  framed_status text not null default 'Unframed',
+  desired_artist_payout numeric(12,2) not null check (desired_artist_payout > 0),
+  artwork_photos jsonb not null default '[]'::jsonb,
+  agreements jsonb not null,
+  application_status text not null default 'Submitted',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists artist_applications_artist_idx
+  on public.artist_applications(artist_id, created_at desc);
+create index if not exists artist_applications_user_idx
+  on public.artist_applications(user_id, created_at desc);
+
+alter table public.order_shipments add column if not exists delivered_at timestamptz;
+alter table public.artist_payouts add column if not exists delivered_at timestamptz;
+alter table public.artist_payouts add column if not exists payout_available_at timestamptz;
+
+alter table public.artist_applications enable row level security;
+revoke all on public.artist_applications from anon, authenticated;
+grant all on public.artist_applications to service_role;
+
+-- Payouts become eligible 48 hours after a verified courier Delivered event.
+-- Transfer remains a manual owner action, never an automatic bank debit/credit.
+create or replace function public.artiste_mark_shipment_delivered(p_shipment_id uuid, p_delivered_at timestamptz default now())
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  target_order uuid;
+  target_artist uuid;
+  delivered_time timestamptz;
+begin
+  delivered_time := coalesce(p_delivered_at, now());
+  update public.order_shipments
+    set delivered_at = coalesce(delivered_at, delivered_time),
+        shipment_status = 'Delivered',
+        updated_at = now()
+    where id = p_shipment_id
+    returning order_id, artist_id, delivered_at into target_order, target_artist, delivered_time;
+  if target_order is null then return false; end if;
+  update public.artist_payouts
+    set delivered_at = coalesce(delivered_at, delivered_time),
+        payout_available_at = coalesce(payout_available_at, delivered_time + interval '48 hours')
+    where order_id = target_order
+      and (target_artist is null or artist_id = target_artist);
+  return true;
+end;
+$$;
+revoke all on function public.artiste_mark_shipment_delivered(uuid, timestamptz) from public, anon, authenticated;
+grant execute on function public.artiste_mark_shipment_delivered(uuid, timestamptz) to service_role;
+
+
+-- V15 account identity: one authenticated user may own separate Painter and
+-- Photographer studios, matching the API's user_id + creator_role upsert key.
+drop index if exists public.artists_user_id_uidx;
+create unique index if not exists artists_user_id_creator_role_uidx
+  on public.artists(user_id, creator_role);
+
+-- Existing ledger snapshots migrate to the V15 payout split. The new rate and
+-- amounts are recalculated consistently for every open or settled row.
+update public.artist_payouts ap
+set commission_rate = case when coalesce(a.is_founding_artist, false) then 0.2000 else 0.3000 end,
+    platform_fee = round(ap.gross_amount * case when coalesce(a.is_founding_artist, false) then 0.2000 else 0.3000 end, 2),
+    artist_payout = ap.gross_amount - round(ap.gross_amount * case when coalesce(a.is_founding_artist, false) then 0.2000 else 0.3000 end, 2)
+from public.artists a
+where ap.artist_id = a.id;
