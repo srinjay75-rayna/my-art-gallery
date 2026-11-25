@@ -11,7 +11,7 @@ const IMAGE_EXTENSIONS = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp'
 const AGREEMENT_TEXTS = {
   original_work: 'I confirm that every submitted artwork is 100% original work created by me and that I hold the rights to sell it.',
   commission_and_payout: 'I agree to the applicable commission tier: 80% Artist / 20% Platform for the first 10 approved Founding Artists, and 75% Artist / 25% Platform for every subsequent approved artist. I understand payout is released 48 hours after courier delivery is marked Delivered.',
-  secure_packing: 'I agree to securely pack each sold artwork and make it ready for courier pickup within 48 hours of the order.',
+  secure_packing: 'I agree to securely pack each sold artwork and make it ready for courier pickup within 72 hours of order confirmation.',
   promotion_permission: 'I permit Artiste to use approved artwork photos and promotional / behind-the-scenes clips to market my work.',
 };
 const AGREEMENT_KEYS = Object.keys(AGREEMENT_TEXTS);

@@ -51,10 +51,11 @@ export async function POST(request) {
     if (['Payment conflict', 'Cancelled', 'Setup failed'].includes(order.status)) return NextResponse.json({ error: 'This order needs manual review. Please contact Artiste with your payment ID.' }, { status: 409 });
     if (order.razorpay_payment_id && order.razorpay_payment_id !== paymentId) return NextResponse.json({ error: 'A different payment has already been recorded for this order.' }, { status: 409 });
 
-    // Razorpay must settle Artwork Subtotal + the separately saved Courier Shipping.
+    // Razorpay settles artwork, courier delivery and separately listed insured studio packing.
     const artworkAmount = Number(order.artwork_price || 0);
     const courierShipping = Number(order.shipping_amount ?? order.shipping_price ?? 0);
-    const expectedTotalPaise = Math.round((artworkAmount + courierShipping) * 100);
+    const insuredPacking = Number(order.insured_packing_amount || 0);
+    const expectedTotalPaise = Math.round((artworkAmount + courierShipping + insuredPacking) * 100);
     const savedTotalPaise = Math.round(Number(order.total_amount ?? (Number(order.amount_paise || 0) / 100)) * 100);
     if (!Number.isSafeInteger(expectedTotalPaise) || !Number.isSafeInteger(savedTotalPaise) || expectedTotalPaise !== Number(order.amount_paise) || savedTotalPaise !== Number(order.amount_paise)) {
       return NextResponse.json({ error: 'The saved artwork and courier total does not match its Razorpay amount. Please contact Artiste support before retrying.' }, { status: 409 });

@@ -79,7 +79,7 @@ export async function GET(request, { params }) {
       }
     }
 
-    let shipmentQuery = supabase.from('order_shipments').select('id,artist_id,artist_name,pickup_contact_name,pickup_phone,pickup_address,pickup_landmark,pickup_locality,pickup_city,pickup_state,pickup_pincode,pickup_location,package_weight_kg,package_length_cm,package_breadth_cm,package_height_cm,courier_name,shipping_amount,shiprocket_order_id,shiprocket_shipment_id,awb_code,shipment_status,shipment_note,items,group_index').eq('order_id', orderId).order('group_index', { ascending: true });
+    let shipmentQuery = supabase.from('order_shipments').select('id,artist_id,artist_name,pickup_contact_name,pickup_phone,pickup_address,pickup_landmark,pickup_locality,pickup_city,pickup_state,pickup_pincode,pickup_location,package_weight_kg,package_length_cm,package_breadth_cm,package_height_cm,courier_name,shipping_amount,shiprocket_order_id,shiprocket_shipment_id,awb_code,shipment_status,shipment_note,partner_packing_amount,pickup_not_before_at,pickup_scheduled_date,pickup_requested_at,items,group_index').eq('order_id', orderId).order('group_index', { ascending: true });
     if (role === 'artist') shipmentQuery = shipmentQuery.eq('artist_id', artistId);
     const { data: shipments, error: shipmentReadError } = await shipmentQuery;
     if (shipmentReadError) throw shipmentReadError;
@@ -94,6 +94,9 @@ export async function GET(request, { params }) {
       print_details: item.print_details || '',
       archival_print_requested: Boolean(item.archival_print_requested),
       framed_status: item.framed_status || 'Unframed',
+      delivery_format: item.delivery_format || 'Stretched Canvas (Gallery-Wrapped, Unframed)',
+      delivery_format_other: item.delivery_format_other || '',
+      packing_mode: item.packing_mode || 'self',
       certificate_id: item.certificate_id || '',
       description: item.description || '',
       quantity: Number(item.quantity || 1),
@@ -119,7 +122,7 @@ export async function GET(request, { params }) {
     const computedShippingAmount = order.shipping_included === true
       ? 0
       : Number(order.shipping_amount || order.shipping_price || 0) || shipmentsForDisplay.reduce((sum, row) => sum + Number(row.shipping_amount || 0), 0);
-    const computedTotalAmount = Number(order.total_amount || 0) || Number(order.amount_paise || 0) / 100 || (computedArtworkAmount + computedShippingAmount);
+    const computedTotalAmount = Number(order.total_amount || 0) || Number(order.amount_paise || 0) / 100 || (computedArtworkAmount + computedShippingAmount + Number(order.insured_packing_amount || 0));
 
     const safeOrder = {
       id: order.id,
@@ -140,6 +143,7 @@ export async function GET(request, { params }) {
       pincode: order.pincode || order.buyer_pincode || '',
       artwork_price: computedArtworkAmount,
       shipping_amount: computedShippingAmount,
+      insured_packing_amount: Number(order.insured_packing_amount || 0),
       shipping_included: order.shipping_included === true,
       total_amount: computedTotalAmount,
       courier_name: order.courier_name || '',
@@ -167,6 +171,9 @@ export async function GET(request, { params }) {
         awb_code: row.awb_code,
         shipment_status: row.shipment_status,
         shipment_note: row.shipment_note,
+        partner_packing_amount: Number(row.partner_packing_amount || 0),
+        pickup_not_before_at: row.pickup_not_before_at || null,
+        pickup_scheduled_date: row.pickup_scheduled_date || null,
         items: Array.isArray(row.items) ? row.items : [],
       })),
     };

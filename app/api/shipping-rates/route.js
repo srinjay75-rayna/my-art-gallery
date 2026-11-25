@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireServiceRole } from '@/lib/supabase';
-import { getCourierRatesByPickup } from '@/lib/shiprocket';
+import { getCourierRatesByPickup, groupPaintingsByPickup } from '@/lib/shiprocket';
+import { calculatePartnerPackingCharge } from '@/lib/packing';
 import { getUserFromRequest } from '@/lib/auth-server';
 import { enforceRateLimit, rateLimitJsonResponse, readJsonBody } from '@/lib/request-guard';
 
@@ -22,7 +23,7 @@ export async function POST(request) {
 
     const supabase = requireServiceRole();
     const { data: paintings, error } = await supabase.from('paintings')
-      .select('id,title,price,weight_kg,length_cm,breadth_cm,height_cm,artist_id,artist_name,is_sold,is_approved,stock_quantity')
+      .select('id,title,price,weight_kg,length_cm,breadth_cm,height_cm,artist_id,artist_name,is_sold,is_approved,stock_quantity,delivery_format,delivery_format_other,packing_mode')
       .in('id', ids).eq('is_sold', false).eq('is_approved', true).gt('stock_quantity', 0);
     if (error) throw error;
     if (!paintings || paintings.length !== ids.length) return NextResponse.json({ error: 'One or more artworks are sold or no longer available.' }, { status: 409 });
@@ -53,12 +54,19 @@ export async function POST(request) {
       return { ...painting, weight_kg: actualWeight, pickup_pincode: origin?.pickup_pincode || process.env.PICKUP_PINCODE, pickup_location: origin?.pickup_location || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary' };
     });
 
+    const groupedItems = groupPaintingsByPickup(enriched);
     const groups = await getCourierRatesByPickup(enriched, deliveryPincode, { city: deliveryCity, state: deliveryState });
-    if (groups.some((group) => !group.couriers.length)) {
-      const unavailable = groups.filter((group) => !group.couriers.length).map((group) => group.artistName);
-      return NextResponse.json({ error: `No courier options are available from: ${unavailable.join(', ')}.`, groups }, { status: 409 });
+    const packingByGroup = new Map(groupedItems.map((group) => [group.groupKey, group.items.reduce((sum, item) => sum + calculatePartnerPackingCharge(item), 0)]));
+    const enrichedGroups = groups.map((group) => ({
+      ...group,
+      partnerPackingAmount: Math.round((packingByGroup.get(group.groupKey) || 0) * 100) / 100,
+      hasPartnerPacking: (packingByGroup.get(group.groupKey) || 0) > 0,
+    }));
+    if (enrichedGroups.some((group) => !group.couriers.length)) {
+      const unavailable = enrichedGroups.filter((group) => !group.couriers.length).map((group) => group.artistName);
+      return NextResponse.json({ error: `No courier options are available from: ${unavailable.join(', ')}.`, groups: enrichedGroups }, { status: 409 });
     }
-    return NextResponse.json({ groups, deliveryPincode, shippingTotal: groups.reduce((sum, group) => sum + Math.min(...group.couriers.map((courier) => courier.rate)), 0) });
+    return NextResponse.json({ groups: enrichedGroups, deliveryPincode, shippingTotal: enrichedGroups.reduce((sum, group) => sum + Math.min(...group.couriers.map((courier) => courier.rate)), 0), packingTotal: enrichedGroups.reduce((sum, group) => sum + group.partnerPackingAmount, 0) });
   } catch (error) {
     console.error('Shiprocket rates failed:', error.message);
     return NextResponse.json({ error: error.message || 'Could not fetch live courier rates.' }, { status: Number(error?.status) || (error?.message?.includes('sign in') ? 401 : 400) });

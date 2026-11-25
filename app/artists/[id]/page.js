@@ -27,7 +27,7 @@ export default async function ArtistCollectionPage({ params }) {
   if (!artist) notFound();
   artist.creator_role = artist.creator_role === 'Photographer' ? 'Photographer' : 'Painter';
 
-  const fullColumns = 'id,title,medium,dimensions,price,weight_kg,length_cm,breadth_cm,height_cm,image_url,is_sold,artist_id,artist_name,avatar_url,is_approved,category,stock_quantity,edition_details,print_details,gallery_images,framed_status,certificate_id,description,created_at';
+  const fullColumns = 'id,title,medium,dimensions,price,weight_kg,length_cm,breadth_cm,height_cm,image_url,is_sold,artist_id,artist_name,avatar_url,is_approved,category,stock_quantity,edition_details,print_details,gallery_images,framed_status,certificate_id,description,delivery_format,delivery_format_other,created_at';
   const legacyColumns = 'id,title,medium,dimensions,price,image_url,is_sold,artist_id,artist_name,avatar_url,is_approved,created_at';
   // Retry with the core legacy projection if an older database has not yet
   // applied one of the optional photography / stock columns.
@@ -41,7 +41,7 @@ export default async function ArtistCollectionPage({ params }) {
     ]);
     let [byArtistId, byArtistName] = await queryWorks(fullColumns);
     const combinedError = byArtistId.error || byArtistName.error;
-    if (combinedError && /stock_quantity|edition_details|print_details|gallery_images|framed_status|certificate_id|description|category|weight_kg|length_cm|breadth_cm|height_cm|schema cache|does not exist/i.test(combinedError.message || '')) {
+    if (combinedError && /stock_quantity|edition_details|print_details|gallery_images|framed_status|certificate_id|description|category|weight_kg|length_cm|breadth_cm|height_cm|delivery_format|delivery_format_other|schema cache|does not exist/i.test(combinedError.message || '')) {
       [byArtistId, byArtistName] = await queryWorks(legacyColumns);
     }
     if (byArtistId.error) throw byArtistId.error;
@@ -61,6 +61,8 @@ export default async function ArtistCollectionPage({ params }) {
         framed_status: painting.framed_status || 'Unframed',
         certificate_id: painting.certificate_id || '',
         description: painting.description || '',
+        delivery_format: painting.delivery_format || 'Stretched Canvas (Gallery-Wrapped, Unframed)',
+        delivery_format_other: painting.delivery_format_other || '',
       }))
       .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
   } catch (error) {

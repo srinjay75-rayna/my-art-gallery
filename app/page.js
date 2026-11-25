@@ -8,9 +8,9 @@ export default async function HomePage() {
   try {
     const supabase = getPublicServerSupabaseClient();
     let result = await supabase.from('paintings')
-      .select('id,title,medium,dimensions,price,weight_kg,length_cm,breadth_cm,height_cm,image_url,is_sold,artist_id,artist_name,avatar_url,is_approved,category,stock_quantity,edition_details,print_details,gallery_images,framed_status,certificate_id,description')
+      .select('id,title,medium,dimensions,price,weight_kg,length_cm,breadth_cm,height_cm,image_url,is_sold,artist_id,artist_name,avatar_url,is_approved,category,stock_quantity,edition_details,print_details,gallery_images,framed_status,certificate_id,description,delivery_format,delivery_format_other')
       .eq('is_sold', false).gt('stock_quantity', 0).eq('is_approved', true).order('created_at', { ascending: false });
-    if (result.error && /stock_quantity|edition_details|print_details|gallery_images|framed_status|certificate_id|description|category|weight_kg|length_cm|breadth_cm|height_cm|schema cache|does not exist/i.test(result.error.message || '')) {
+    if (result.error && /stock_quantity|edition_details|print_details|gallery_images|framed_status|certificate_id|description|category|weight_kg|length_cm|breadth_cm|height_cm|delivery_format|delivery_format_other|schema cache|does not exist/i.test(result.error.message || '')) {
       // Keep legacy paintings visible if an optional V9 column migration is still pending.
       result = await supabase.from('paintings')
         .select('id,title,medium,dimensions,price,image_url,is_sold,artist_id,artist_name,avatar_url,is_approved,created_at')
@@ -27,6 +27,8 @@ export default async function HomePage() {
       framed_status: painting.framed_status || 'Unframed',
       certificate_id: painting.certificate_id || '',
       description: painting.description || '',
+      delivery_format: painting.delivery_format || 'Stretched Canvas (Gallery-Wrapped, Unframed)',
+      delivery_format_other: painting.delivery_format_other || '',
     }));
   } catch (error) {
     console.error('Gallery load failed:', error.message);

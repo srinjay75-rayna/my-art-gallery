@@ -4,6 +4,7 @@ import { requireServiceRole } from '@/lib/supabase';
 import { getCourierRatesByPickup, groupPaintingsByPickup } from '@/lib/shiprocket';
 import { getUserFromRequest } from '@/lib/auth-server';
 import { normaliseIndianPhone } from '@/lib/india-address';
+import { calculatePartnerPackingCharge } from '@/lib/packing';
 
 export const runtime = 'nodejs';
 const money = (value) => Math.round(Number(value || 0) * 100) / 100;
@@ -17,7 +18,7 @@ function validateProfile(profile) {
   return null;
 }
 
-async function createRazorpayOrder({ keyId, keySecret, amountPaise, merchantRef, ids }) {
+async function createRazorpayOrder({ keyId, keySecret, amountPaise, merchantRef, ids, artworkPrice, shippingAmount, insuredPackingAmount }) {
   const auth = Buffer.from(`${keyId}:${keySecret}`).toString('base64');
   const response = await fetch('https://api.razorpay.com/v1/orders', {
     method: 'POST',
@@ -26,7 +27,7 @@ async function createRazorpayOrder({ keyId, keySecret, amountPaise, merchantRef,
       amount: amountPaise,
       currency: 'INR',
       receipt: merchantRef,
-      notes: { painting_ids: ids.join(','), item_count: String(ids.length) },
+      notes: { painting_ids: ids.join(','), item_count: String(ids.length), artwork_total_inr: money(artworkPrice).toFixed(2), courier_shipping_inr: money(shippingAmount).toFixed(2), insured_studio_packing_inr: money(insuredPackingAmount).toFixed(2) },
     }),
     cache: 'no-store',
     signal: AbortSignal.timeout(15000),
@@ -51,7 +52,7 @@ export async function POST(request) {
     const [{ data: profile, error: profileError }, { data: paintings, error: paintingError }] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
       supabase.from('paintings')
-        .select('id,title,medium,dimensions,price,weight_kg,length_cm,breadth_cm,height_cm,image_url,is_sold,is_approved,stock_quantity,artist_id,artist_name,category,edition_details,print_details,description,framed_status,certificate_id,gallery_images')
+        .select('id,title,medium,dimensions,price,weight_kg,length_cm,breadth_cm,height_cm,image_url,is_sold,is_approved,stock_quantity,artist_id,artist_name,category,edition_details,print_details,description,framed_status,certificate_id,gallery_images,delivery_format,delivery_format_other,packing_mode')
         .in('id', ids).eq('is_sold', false).gt('stock_quantity', 0).eq('is_approved', true),
     ]);
     if (profileError) throw profileError;
@@ -133,8 +134,12 @@ export async function POST(request) {
       const pickupPincode = legacy?.pickup_pincode || process.env.PICKUP_PINCODE || '';
       const pickupLocation = legacy?.pickup_location || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary';
       if (!/^\d{6}$/.test(String(pickupPincode))) throw new Error(`No valid pickup PIN code is configured for “${painting.title}”.`);
-      return { ...painting, creator_role: 'Painter', artist_name: painting.artist_name || 'Artiste Studio', pickup_pincode: pickupPincode, pickup_location: pickupLocation, dispatchSnapshot: { artist_id: null, artist_name: 'Artiste Studio', pickup_city: process.env.PICKUP_CITY || '', pickup_state: process.env.PICKUP_STATE || '', pickup_pincode: pickupPincode, pickup_location: pickupLocation, payout_info: null } };
+      return { ...painting, creator_role: 'Painter', artist_name: painting.artist_name || 'Artiste Studio', pickup_pincode: pickupPincode, pickup_location: pickupLocation, dispatchSnapshot: { artist_id: null, artist_name: 'Artiste Studio', pickup_contact_name: 'Artiste Studio', pickup_phone: process.env.PICKUP_PHONE || '', pickup_address: process.env.PICKUP_ADDRESS || '', pickup_landmark: '', pickup_locality: process.env.PICKUP_LOCALITY || '', pickup_city: process.env.PICKUP_CITY || '', pickup_state: process.env.PICKUP_STATE || '', pickup_pincode: pickupPincode, pickup_location: pickupLocation, payout_info: null } };
     });
+
+    for (const painting of enrichedPaintings) {
+      painting.partner_packing_amount = calculatePartnerPackingCharge(painting);
+    }
 
     const groups = groupPaintingsByPickup(enrichedPaintings);
     const liveRateGroups = await getCourierRatesByPickup(enrichedPaintings, destinationPincode, { city: profile.city, state: profile.state });
@@ -169,7 +174,8 @@ export async function POST(request) {
         pickup_pincode: group.pickupPincode,
         pickup_location: group.pickupLocation,
         payout_info: snapshot.payout_info || {},
-        items: group.items.map((item) => ({ id: item.id, title: item.title, price: money(item.price), weight_kg: Number(item.weight_kg), length_cm: Number(item.length_cm), breadth_cm: Number(item.breadth_cm), height_cm: Number(item.height_cm) })),
+        items: group.items.map((item) => ({ id: item.id, title: item.title, price: money(item.price), weight_kg: Number(item.weight_kg), length_cm: Number(item.length_cm), breadth_cm: Number(item.breadth_cm), height_cm: Number(item.height_cm), delivery_format: item.delivery_format || 'Stretched Canvas (Gallery-Wrapped, Unframed)', delivery_format_other: item.delivery_format_other || '', packing_mode: item.packing_mode || 'self', partner_packing_amount: money(item.partner_packing_amount) })),
+        partner_packing_amount: money(group.items.reduce((sum, item) => sum + Number(item.partner_packing_amount || 0), 0)),
         package_weight_kg: group.package.weight,
         package_length_cm: group.package.length_cm,
         package_breadth_cm: group.package.breadth_cm,
@@ -193,8 +199,16 @@ export async function POST(request) {
         title: painting.title,
         medium: painting.medium,
         dimensions: painting.dimensions,
+        length_cm: Number(painting.length_cm || 0),
+        breadth_cm: Number(painting.breadth_cm || 0),
+        height_cm: Number(painting.height_cm || 0),
         description: painting.description || '',
         framed_status: painting.framed_status || 'Unframed',
+        delivery_format: painting.delivery_format || 'Stretched Canvas (Gallery-Wrapped, Unframed)',
+        delivery_format_other: painting.delivery_format_other || '',
+        packing_mode: painting.packing_mode || 'self',
+        partner_packing_amount: money(painting.partner_packing_amount),
+        pickup_snapshot: { pickup_contact_name: painting.dispatchSnapshot?.pickup_contact_name || painting.artist_name || 'Artiste Studio', artist_name: painting.artist_name || 'Artiste Studio', pickup_phone: painting.dispatchSnapshot?.pickup_phone || '', pickup_address: painting.dispatchSnapshot?.pickup_address || '', pickup_landmark: painting.dispatchSnapshot?.pickup_landmark || '', pickup_locality: painting.dispatchSnapshot?.pickup_locality || '', pickup_city: painting.dispatchSnapshot?.pickup_city || '', pickup_state: painting.dispatchSnapshot?.pickup_state || '', pickup_pincode: painting.pickup_pincode },
         certificate_id: painting.certificate_id || '',
         price,
         platform_fee: platformFee,
@@ -214,8 +228,9 @@ export async function POST(request) {
     });
     const platformFee = money(orderItems.reduce((sum, item) => sum + item.platform_fee, 0));
     const artistPayout = money(orderItems.reduce((sum, item) => sum + item.artist_payout, 0));
-    // Courier delivery is a separate customer-paid amount; artist payouts remain based on artworkPrice only.
-    const totalAmount = money(artworkPrice + shippingAmount);
+    const insuredPackingAmount = money(orderItems.reduce((sum, item) => sum + Number(item.partner_packing_amount || 0), 0));
+    // Courier and insured partner packing are separate from artwork value; Artist earnings remain based on artworkPrice only.
+    const totalAmount = money(artworkPrice + shippingAmount + insuredPackingAmount);
     const amountPaise = Math.round(totalAmount * 100);
     if (!Number.isSafeInteger(amountPaise) || amountPaise < 100 || amountPaise > 100000000) return NextResponse.json({ error: 'The payable amount is invalid.' }, { status: 400 });
 
@@ -223,7 +238,7 @@ export async function POST(request) {
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
     if (!keyId || !keySecret) throw new Error('Razorpay keys are missing from the server environment.');
     const merchantRef = `AR${Date.now()}${crypto.randomInt(1000, 9999)}`.slice(0, 20);
-    const razorpayOrder = await createRazorpayOrder({ keyId, keySecret, amountPaise, merchantRef, ids });
+    const razorpayOrder = await createRazorpayOrder({ keyId, keySecret, amountPaise, merchantRef, ids, artworkPrice, shippingAmount, insuredPackingAmount });
 
     const customerName = String(profile.full_name).trim();
     const customerEmail = String(user.email || '').trim().toLowerCase();
@@ -254,6 +269,7 @@ export async function POST(request) {
       artwork_price: artworkPrice,
       shipping_price: shippingAmount,
       shipping_amount: shippingAmount,
+      insured_packing_amount: insuredPackingAmount,
       courier_cost: shippingAmount,
       shipping_included: false,
       total_amount: totalAmount,
@@ -291,6 +307,7 @@ export async function POST(request) {
       keyId,
       artworkPrice,
       shippingAmount,
+      insuredPackingAmount,
       totalAmount,
       shipmentCount: shipmentRows.length,
     });

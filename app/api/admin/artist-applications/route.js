@@ -38,10 +38,7 @@ function createEmailTransport() {
 }
 
 function artistPortalUrl() {
-  const configured = process.env.NEXT_PUBLIC_SITE_URL || process.env.SITE_URL || process.env.APP_URL;
-  if (configured) return `${configured.replace(/\/+$/, '')}/artist`;
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL.replace(/^https?:\/\//, '').replace(/\/+$/, '')}/artist`;
-  return 'http://localhost:3000/artist';
+  return 'https://my-art-gallery-theta.vercel.app/artist';
 }
 
 async function sendFoundingArtistWelcomeEmail({ email, fullName, studioName, approvalTier }) {
@@ -59,11 +56,11 @@ Your Artist application has been approved. Welcome to the Artiste journey.
 
 Your assigned tier is ${approvalTier}: ${artistShare}% Artist share and ${platformShare}% Platform commission. Payout is released 48 hours after courier delivery is marked Delivered, subject to verified payout details.
 
-Please log in to your Artist Portal at ${portalUrl} to complete your Studio Pickup Address and Bank / UPI Payout Details.
+Please log in to your Artist Portal at ${portalUrl} to complete your Name, Studio Pickup Address and Bank / UPI details. Pack each confirmed sale and have it ready for collection within 72 hours of order confirmation.
 
 Warm regards,
 Team Artiste`;
-  const html = `<!doctype html><html><body style="margin:0;padding:32px;background:#f6f0e7;font-family:Arial,sans-serif;color:#263832"><div style="max-width:600px;margin:0 auto;background:#fffaf3;border:1px solid #e1d0b8;border-radius:18px;padding:32px"><p style="margin:0 0 16px;color:#9b644b;font-size:11px;letter-spacing:3px;text-transform:uppercase">Artiste · ${escapeHtml(tierName)}</p><h1 style="margin:0 0 20px;font-family:Georgia,serif;font-size:30px;font-weight:500">Welcome to the Artiste journey.</h1><p>Dear ${escapeHtml(recipientName)},</p><p>Your Artist application has been <strong>approved</strong>. Welcome to the Artiste family.</p><p>Your assigned commission tier is <strong>${approvalTier}</strong>: you receive <strong>${artistShare}% Artist share</strong>, with ${platformShare}% Platform commission.</p><p>Payout is released 48 hours after courier delivery is marked Delivered, subject to verified payout details.</p><p>Please log in to your Artist Portal to complete your <strong>Studio Pickup Address</strong> and <strong>Bank / UPI Payout Details</strong>.</p><p style="margin:28px 0"><a href="${escapeHtml(portalUrl)}" style="display:inline-block;padding:14px 22px;border-radius:999px;background:#173d31;color:#fffaf3;text-decoration:none;font-weight:bold">Open Artist Portal</a></p><p style="margin-bottom:0">Warm regards,<br/><strong>Team Artiste</strong></p></div></body></html>`;
+  const html = `<!doctype html><html><body style="margin:0;padding:32px;background:#f6f0e7;font-family:Arial,sans-serif;color:#263832"><div style="max-width:600px;margin:0 auto;background:#fffaf3;border:1px solid #e1d0b8;border-radius:18px;padding:32px"><p style="margin:0 0 16px;color:#9b644b;font-size:11px;letter-spacing:3px;text-transform:uppercase">Artiste · ${escapeHtml(tierName)}</p><h1 style="margin:0 0 20px;font-family:Georgia,serif;font-size:30px;font-weight:500">Welcome to the Artiste journey.</h1><p>Dear ${escapeHtml(recipientName)},</p><p>Your Artist application has been <strong>approved</strong>. Welcome to the Artiste family.</p><p>Your assigned commission tier is <strong>${approvalTier}</strong>: you receive <strong>${artistShare}% Artist share</strong>, with ${platformShare}% Platform commission.</p><p>Payout is released 48 hours after courier delivery is marked Delivered, subject to verified payout details.</p><p>Please log in to your Artist Portal to complete your <strong>Name</strong>, <strong>Studio Pickup Address</strong> and <strong>Bank / UPI details</strong>. Please have each confirmed sale ready for collection within <strong>72 hours of order confirmation</strong>.</p><p style="margin:28px 0"><a href="${escapeHtml(portalUrl)}" style="display:inline-block;padding:14px 22px;border-radius:999px;background:#173d31;color:#fffaf3;text-decoration:none;font-weight:bold">Open Artist Portal</a></p><p style="margin-bottom:0">Warm regards,<br/><strong>Team Artiste</strong></p></div></body></html>`;
   await transport.sendMail({ from, to: email, subject, text, html });
 }
 

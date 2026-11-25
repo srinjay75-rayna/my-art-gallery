@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { isAdminRequest } from '@/lib/admin-auth';
 import { requireServiceRole } from '@/lib/supabase';
+import { postPaidOrderAccounting } from '@/lib/accounting';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,6 +21,26 @@ export async function GET() {
   if (!(await isAdminRequest())) return NextResponse.json({ error: 'Admin authentication required.' }, { status: 401 });
   try {
     const supabase = requireServiceRole();
+    // Repair an earlier transient posting failure when the Host opens Accounts & Ledger.
+    // The database posting key is unique, so repeated reads never duplicate a sales voucher.
+    const [paidOrders, existingVouchers] = await Promise.all([
+      fetchAll(() => supabase.from('orders').select('*').eq('status', 'Paid').order('paid_at', { ascending: true })),
+      fetchAll(() => supabase.from('accounting_vouchers').select('posting_key').not('posting_key', 'is', null)),
+    ]);
+    const postedKeys = new Set((existingVouchers || []).map((voucher) => voucher.posting_key).filter(Boolean));
+    for (const order of paidOrders) {
+      const postingKey = `paid-order:${order.id}`;
+      if (postedKeys.has(postingKey)) continue;
+      try {
+        const items = Array.isArray(order.items) && order.items.length
+          ? order.items
+          : [{ price: order.artwork_price, artist_payout: order.artist_payout, platform_fee: order.platform_fee }];
+        await postPaidOrderAccounting(supabase, order, items);
+        postedKeys.add(postingKey);
+      } catch (postingError) {
+        console.error(`Automatic accounting repair failed for ${order.merchant_order_ref || order.id}:`, postingError?.message || postingError);
+      }
+    }
     const [ledgers, vouchers, entries] = await Promise.all([
       fetchAll(() => supabase.from('accounting_ledgers').select('*').order('ledger_code', { ascending: true })),
       fetchAll(() => supabase.from('accounting_vouchers').select('*').order('voucher_date', { ascending: false })),
@@ -34,7 +55,7 @@ export async function GET() {
     }));
     return NextResponse.json({ ledgers, vouchers, entries: enrichedEntries });
   } catch (error) {
-    return NextResponse.json({ error: `${error.message || 'Could not load accounting ledgers.'} Run the V17 section of database/schema.sql if the accounting tables are missing.` }, { status: 500 });
+    return NextResponse.json({ error: `${error.message || 'Could not load accounting ledgers.'} Run the accounting section of database/schema.sql if the accounting tables are missing.` }, { status: 500 });
   }
 }
 

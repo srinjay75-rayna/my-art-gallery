@@ -61,6 +61,9 @@ const artworkBlank = {
   length_cm: '',
   breadth_cm: '',
   height_cm: '',
+  delivery_format: 'Stretched Canvas (Gallery-Wrapped, Unframed)',
+  delivery_format_other: '',
+  packing_mode: 'self',
 };
 
 const payoutBlank = {
@@ -806,6 +809,9 @@ export default function ArtistPage() {
       medium: painting.medium || '',
       dimensions: painting.dimensions || '',
       framed_status: painting.framed_status || 'Unframed',
+      delivery_format: painting.delivery_format || 'Stretched Canvas (Gallery-Wrapped, Unframed)',
+      delivery_format_other: painting.delivery_format_other || '',
+      packing_mode: painting.packing_mode || 'self',
       price: String(painting.price || ''),
     });
 
@@ -1172,6 +1178,34 @@ export default function ArtistPage() {
                         </select>
                       </label>
 
+                      <section className="rounded-2xl border border-[#D9C6A6] bg-white/60 p-5">
+                        <div><h3 className="font-display text-xl">Artwork presentation &amp; delivery format</h3><p className="mt-1 text-xs leading-5 text-muted">Choose how this artwork will be presented and prepared for delivery.</p></div>
+                        <label className="label mt-3 block">Presentation format
+                          <select className="field mt-1" value={form.delivery_format} onChange={(e) => setForm((current) => ({ ...current, delivery_format: e.target.value }))}>
+                            <option>Stretched Canvas (Gallery-Wrapped, Unframed)</option>
+                            <option>Framed Artwork (Canvas or Paper, Ready to Hang)</option>
+                            <option>Rolled Canvas (Unstretched, Shipped in Protective Tube)</option>
+                            <option>Unframed Fine-Art Paper / Print (Flat or Tube)</option>
+                            <option>Rigid Panel / Canvas Board / Wood / Metal</option>
+                            <option>Other (Specify exact format)</option>
+                          </select>
+                        </label>
+                        {form.delivery_format === 'Other (Specify exact format)' && <label className="label mt-3 block">Exact presentation / packing format
+                          <input className="field mt-1" maxLength={160} required value={form.delivery_format_other} onChange={(e) => setForm((current) => ({ ...current, delivery_format_other: e.target.value }))} placeholder="e.g. 2-Panel Diptych or Textured Relief on Board" />
+                        </label>}
+                        <div className="mt-4 grid gap-3">
+                          <p className="label">Packing choice</p>
+                          <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${form.packing_mode === 'self' ? 'border-[#8D6B4F] bg-[#F7F0E7]' : 'border-[#e6ddd1] bg-white'}`}>
+                            <input type="radio" name="packing_mode" className="mt-1" checked={form.packing_mode === 'self'} onChange={() => setForm((current) => ({ ...current, packing_mode: 'self' }))} />
+                            <span><b className="block text-sm">I will pack this artwork myself</b><small className="text-xs text-muted">No extra packing charge at checkout. Include your packing cost in your artwork price.</small></span>
+                          </label>
+                          <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${form.packing_mode === 'partner' ? 'border-[#8D6B4F] bg-[#F7F0E7]' : 'border-[#e6ddd1] bg-white'}`}>
+                            <input type="radio" name="packing_mode" className="mt-1" checked={form.packing_mode === 'partner'} onChange={() => setForm((current) => ({ ...current, packing_mode: 'partner' }))} />
+                            <span><b className="block text-sm">Pack with Ganesh Packers and Movers (★ 4.9/5 rated on Google)</b><small className="text-xs text-muted">Your artwork must be packed and ready for collection within 72 hours of order confirmation. The packing charge is separate from your artwork price and Artist share.</small></span>
+                          </label>
+                        </div>
+                      </section>
+
                       {/* PRIVATE MATERIAL + HOURS PRICE CALCULATOR — studio-only */}
                       <section className="rounded-3xl border border-[#D9C6A6] bg-[#FAF6F0] p-6 shadow-soft md:p-7">
                         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1184,7 +1218,7 @@ export default function ArtistPage() {
                           <label className="label">Hourly Rate (₹/hr)<input className="field mt-2" type="number" min="0" step="1" value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} /><small className="mt-1 block text-muted">Guide (with profit margin on top): ₹200–₹350/hr new artists · ₹350–₹650/hr established · ₹650–₹1,200+/hr mature.</small></label>
                           <label className="label">Studio Overheads (₹)<input className="field mt-2" type="number" min="0" step="1" value={additionalOverheads} onChange={(e) => setAdditionalOverheads(e.target.value)} /><small className="mt-1 block text-muted">Optional: Share of electricity, studio lighting, or workspace upkeep (enter ₹0 if none).</small></label>
                           <label className="label">Profit Margin (%)<input className="field mt-2" type="number" min="0" max="80" step="1" value={profitMarginPct} onChange={(e) => setProfitMarginPct(e.target.value === '' ? '' : String(Math.min(80, Math.max(0, Number(e.target.value) || 0))))} /><small className="mt-1 block text-muted">Guide: 12%–18% very new artists · 18%–25% established · 25%–40% mature / high-profile.</small></label>
-                          <label className="label">Packing Cost (₹)<input className="field mt-2" type="number" min="0" step="1" value={packingCost} onChange={(e) => setPackingCost(e.target.value)} /><small className="mt-1 block text-muted">Optional: Enter ₹0 if none, your box/wrap cost if self-packing, or Artiste Packers &amp; Movers fee (100% recovered).</small></label>
+                          <label className="label">Packing Cost (₹)<input className="field mt-2" type="number" min="0" step="1" value={packingCost} onChange={(e) => setPackingCost(e.target.value)} /><small className="mt-1 block text-muted">Optional: Enter ₹0 if none, your box/wrap cost if self-packing, or Ganesh Packers and Movers fee (100% recovered).</small></label>
                         </div>
                         <div className="mt-6 grid gap-4 md:grid-cols-[1fr_.9fr]">
                           <div className="rounded-2xl border border-[#E6D9C8] bg-white p-5">
@@ -1563,6 +1597,26 @@ export default function ArtistPage() {
                                       >
                                         <option>Unframed</option>
                                         <option>Framed</option>
+                                      </select>
+                                    </label>
+
+                                    <label className="label">Presentation &amp; delivery format
+                                      <select className="field mt-1" value={paintingEditForm.delivery_format || 'Stretched Canvas (Gallery-Wrapped, Unframed)'} onChange={(e) => setPaintingEditForm((current) => ({ ...current, delivery_format: e.target.value }))}>
+                                        <option>Stretched Canvas (Gallery-Wrapped, Unframed)</option>
+                                        <option>Framed Artwork (Canvas or Paper, Ready to Hang)</option>
+                                        <option>Rolled Canvas (Unstretched, Shipped in Protective Tube)</option>
+                                        <option>Unframed Fine-Art Paper / Print (Flat or Tube)</option>
+                                        <option>Rigid Panel / Canvas Board / Wood / Metal</option>
+                                        <option>Other (Specify exact format)</option>
+                                      </select>
+                                    </label>
+                                    {paintingEditForm.delivery_format === 'Other (Specify exact format)' && <label className="label">Exact format
+                                      <input className="field mt-1" maxLength={160} required value={paintingEditForm.delivery_format_other || ''} onChange={(e) => setPaintingEditForm((current) => ({ ...current, delivery_format_other: e.target.value }))} placeholder="Specify the presentation / packing format" />
+                                    </label>}
+                                    <label className="label">Packing choice
+                                      <select className="field mt-1" value={paintingEditForm.packing_mode || 'self'} onChange={(e) => setPaintingEditForm((current) => ({ ...current, packing_mode: e.target.value }))}>
+                                        <option value="self">I will pack this artwork myself</option>
+                                        <option value="partner">Pack with Ganesh Packers and Movers (★ 4.9/5 rated on Google)</option>
                                       </select>
                                     </label>
 

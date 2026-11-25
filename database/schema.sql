@@ -1437,9 +1437,10 @@ create index if not exists accounting_entries_ledger_idx on public.accounting_en
 insert into public.accounting_ledgers (ledger_code, ledger_name, ledger_type, description, is_system)
 values
   ('1000', 'Razorpay Clearing', 'asset', 'Captured customer payments awaiting settlement', true),
-  ('1010', 'Bank / UPI', 'asset', 'Manual bank and UPI payout account', true),
+  ('1010', 'Bank / UPI', 'asset', 'Bank account for customer receipts and Artist payout transfers', true),
   ('2000', 'Artist Payable', 'liability', 'Artist earnings due for settlement', true),
   ('2010', 'Shiprocket Payable', 'liability', 'Quoted courier charges accrued and awaiting provider settlement', true),
+  ('2020', 'Ganesh Packers and Movers Payable', 'liability', 'Insured studio packing charges collected from customers and payable to packing partner', true),
   ('3000', 'Owner Capital', 'equity', 'Owner capital and opening balances', true),
   ('4000', 'Platform Commission Revenue', 'income', 'Artiste platform commission earned on artwork sales', true),
   ('4100', 'Shipping Recovery', 'income', 'Shipping amount collected from customers', true),
@@ -1581,3 +1582,40 @@ insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_typ
 values ('payout-proofs', 'payout-proofs', false, 10485760, array['image/jpeg','image/png','image/webp','image/avif','application/pdf'])
 on conflict (id) do update set public = false, file_size_limit = 10485760, allowed_mime_types = excluded.allowed_mime_types;
 
+
+
+-- Version 18: artwork presentation, partner packing, 72-hour dispatch window and private packer notification log.
+alter table public.paintings add column if not exists delivery_format text not null default 'Stretched Canvas (Gallery-Wrapped, Unframed)';
+alter table public.paintings add column if not exists delivery_format_other text not null default '';
+alter table public.paintings add column if not exists packing_mode text not null default 'self';
+alter table public.paintings drop constraint if exists paintings_packing_mode_check;
+alter table public.paintings add constraint paintings_packing_mode_check check (packing_mode in ('self', 'partner'));
+
+alter table public.orders add column if not exists insured_packing_amount numeric(12,2) not null default 0;
+alter table public.order_shipments add column if not exists partner_packing_amount numeric(12,2) not null default 0;
+alter table public.order_shipments add column if not exists pickup_not_before_at timestamptz;
+alter table public.order_shipments add column if not exists pickup_scheduled_date date;
+alter table public.order_shipments add column if not exists pickup_requested_at timestamptz;
+
+insert into public.accounting_ledgers (ledger_code, ledger_name, ledger_type, description, is_system)
+values ('2020', 'Ganesh Packers and Movers Payable', 'liability', 'Insured studio packing charges collected from customers and payable to packing partner', true)
+on conflict (ledger_code) do update set ledger_name = excluded.ledger_name, ledger_type = excluded.ledger_type, description = excluded.description, is_system = true;
+
+create table if not exists public.packer_dispatches (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null unique references public.orders(id) on delete cascade,
+  order_ref text not null default '',
+  dispatch_summary text not null default '',
+  packing_deadline_at timestamptz,
+  email_status text not null default 'pending' check (email_status in ('pending','sending','sent','failed','not_configured')),
+  email_sent_at timestamptz,
+  whatsapp_status text not null default 'pending' check (whatsapp_status in ('pending','sending','sent','failed','not_configured')),
+  whatsapp_sent_at timestamptz,
+  last_error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists packer_dispatches_created_idx on public.packer_dispatches(created_at desc);
+alter table public.packer_dispatches enable row level security;
+revoke all on public.packer_dispatches from public, anon, authenticated;
+grant all on public.packer_dispatches to service_role;

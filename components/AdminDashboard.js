@@ -46,7 +46,7 @@ function makeAccountingVoucherRows(entries) {
   }
   return Array.from(grouped.values()).sort((a, b) => String(b.date).localeCompare(String(a.date)));
 }
-const LEGACY_AGREEMENT_TEXTS = { original_work: 'I confirm that every submitted artwork is 100% original work created by me and that I hold the rights to sell it.', commission_and_payout: 'I agree to the 70% Artist / 30% Platform split, or the 80% Artist / 20% Platform split if I am approved as a Founding Artist, and understand payout is released 48 hours after courier delivery is marked Delivered.', secure_packing: 'I agree to securely pack each sold artwork and make it ready for courier pickup within 48 hours of the order.', promotion_permission: 'I permit Artiste to use approved artwork photos and promotional / behind-the-scenes clips to market my work.' };
+const LEGACY_AGREEMENT_TEXTS = { original_work: 'I confirm that every submitted artwork is 100% original work created by me and that I hold the rights to sell it.', commission_and_payout: 'I agree to the 70% Artist / 30% Platform split, or the 80% Artist / 20% Platform split if I am approved as a Founding Artist, and understand payout is released 48 hours after courier delivery is marked Delivered.', secure_packing: 'I agree to securely pack each sold artwork and make it ready for courier pickup within 72 hours of order confirmation.', promotion_permission: 'I permit Artiste to use approved artwork photos and promotional / behind-the-scenes clips to market my work.' };
 
 function makeAccountsLedger(payouts, orders, artists) {
   const orderMap = new Map(orders.map((order) => [order.id, order]));
@@ -92,6 +92,7 @@ export default function AdminDashboard() {
   const [accountingLedgers, setAccountingLedgers] = useState([]);
   const [accountingEntries, setAccountingEntries] = useState([]);
   const [payoutModalRow, setPayoutModalRow] = useState(null);
+  const [packerBusyId, setPackerBusyId] = useState('');
   const [payoutPayment, setPayoutPayment] = useState({ amount: '', utr: '', proof: null });
   const [ledgerForm, setLedgerForm] = useState({ ledger_code: '', ledger_name: '', ledger_type: 'asset', description: '' });
   const [showLedgerCreator, setShowLedgerCreator] = useState(false);
@@ -108,6 +109,25 @@ export default function AdminDashboard() {
     if (!res.ok) throw new Error(data.error || 'Request failed.');
     return data;
   };
+  async function sendPackerWhatsApp(order) {
+    if (!order?.id || packerBusyId) return;
+    setPackerBusyId(order.id);
+    setError('');
+    setNotice('');
+    try {
+      const result = await request('/api/owner/packer-dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: order.id }),
+      });
+      setNotice(result.message || 'Packing dispatch sent.');
+    } catch (dispatchError) {
+      setError(dispatchError.message || 'Could not send the Ganesh packing dispatch.');
+    } finally {
+      setPackerBusyId('');
+    }
+  }
+
   const load = useCallback(async () => {
     const [p, o, fa, ac] = await Promise.all([request('/api/admin/paintings'), request('/api/admin/overview'), request('/api/admin/artist-applications'), request('/api/owner/accounting').catch(() => ({ ledgers: [], entries: [] }))]);
     setFoundingApplications(fa.applications || []);
@@ -324,7 +344,7 @@ export default function AdminDashboard() {
           <div className="flex items-center gap-4"><button onClick={logout} className="text-xs font-bold uppercase tracking-wider text-clay">Sign out</button><a href="/" className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-clay"><ArrowLeft size={13}/> View gallery</a></div>
         </header>
         <section className="mb-8 rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] p-6 shadow-soft md:p-7">
-          <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="eyebrow">Host / Studio Vault Profile</p><h1 className="mt-2 font-display text-3xl">Artiste Host</h1><p className="mt-1 text-xs text-muted">Private owner control centre · Founding artist approvals and studio operations</p></div><span className="rounded-full bg-[#173D31] px-4 py-2 text-xs font-semibold text-white">Order-triggered Shiprocket pickup · Payout release after Delivered + 48 hours</span></div>
+          <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="eyebrow">Host / Studio Vault Profile</p><h1 className="mt-2 font-display text-3xl">Artiste Host</h1><p className="mt-1 text-xs text-muted">Private owner control centre · Founding artist approvals and studio operations</p></div><span className="rounded-full bg-[#173D31] px-4 py-2 text-xs font-semibold text-white">Artist packing window: 72 hours · Shiprocket pickup follows completion</span></div>
           <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <div className="rounded-2xl bg-white/70 p-4"><p className="eyebrow">Founding artist slots</p><p className="mt-2 font-display text-2xl">{Math.min(foundingSlotsFilled, 10)} / 10</p><p className="mt-1 text-xs text-muted">Founding Artist 80/20 spots filled · Next tier: 75/25</p></div>
             <div className="rounded-2xl bg-white/70 p-4"><p className="eyebrow">TOTAL SALES</p><p className="mt-2 font-display text-2xl">{money(totalSales)}</p><p className="mt-1 text-xs text-muted">Confirmed customer order revenue</p></div>
@@ -399,7 +419,8 @@ export default function AdminDashboard() {
                 </div>
                 <div className="grid gap-4 p-4 lg:grid-cols-2">
                   <div className="rounded-xl border border-[#eee6db] p-3 text-xs leading-5"><b className="eyebrow">Customer delivery address</b><p className="mt-2">{dash(o.shipping_address || o.buyer_address)}, {dash(o.landmark)}, {dash(o.locality || o.city || o.buyer_city)}, {dash(o.city)}, {dash(o.state || o.buyer_state)} – {dash(o.pincode || o.buyer_pincode)}</p></div>
-                  <div className="rounded-xl border border-[#eee6db] p-3 text-xs leading-5"><b className="eyebrow">Purchased artworks</b>{Array.isArray(o.items) ? o.items.map((item, index) => <p key={`${item.id || item.painting_id || index}`} className="mt-1">{item.title || item.painting_title || 'Artwork'} · {item.artist_name || 'Artiste Studio'} · {money(item.price || item.unit_price)}</p>) : <p className="mt-1">{o.painting_title}</p>}</div>
+                  <div className="rounded-xl border border-[#eee6db] p-3 text-xs leading-5"><b className="eyebrow">Purchased artworks</b>{Array.isArray(o.items) ? o.items.map((item, index) => <div key={`${item.id || item.painting_id || index}`} className="mt-2"><p>{item.title || item.painting_title || 'Artwork'} · {item.artist_name || 'Artiste Studio'} · {money(item.price || item.unit_price)}</p><p className="text-[10px] text-muted">{item.delivery_format === 'Other (Specify exact format)' ? (item.delivery_format_other || 'Custom presentation format') : (item.delivery_format || 'Presentation format not recorded')} · {item.packing_mode === 'partner' ? 'Ganesh partner packing' : 'Artist self-packing'}</p></div>) : <p className="mt-1">{o.painting_title}</p>}{Number(o.insured_packing_amount || 0) > 0 && <p className="mt-2 font-semibold text-clay">Insured Studio Packing — Ganesh Packers and Movers: {money(o.insured_packing_amount)}</p>}</div>
+                  {String(o.status || '').toLowerCase() === 'paid' && Array.isArray(o.items) && o.items.some((item) => item.packing_mode === 'partner') && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#D9C6A6] bg-white/70 p-3"><div><b className="text-xs">Ganesh Packers and Movers</b><p className="text-[10px] text-muted">Packing completion due within 72 hours of order confirmation.</p></div><button type="button" className="action-btn" disabled={packerBusyId === o.id} onClick={() => sendPackerWhatsApp(o)}>{packerBusyId === o.id ? 'Sending…' : 'Send WhatsApp dispatch'}</button></div>}
                 </div>
                 <div className="border-t border-[#eee6db] p-4">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h3 className="font-display text-xl">Artist dispatch &amp; courier details</h3><span className="pill">{(o.shipments || []).length} shipment group(s)</span></div>
@@ -407,6 +428,8 @@ export default function AdminDashboard() {
                     <div className="flex flex-wrap items-start justify-between gap-2"><div><b>{s.artist_dispatch?.artist_name || s.artist_name || 'Artist'}</b><p>{s.courier_name || 'Courier awaiting assignment'} · {s.shipment_status || 'Pending'}</p></div><span className="pill">{money(s.shipping_amount ?? s.shipping_price)}</span></div>
                     <p className="mt-2">AWB / Tracking: <b>{s.awb_code || s.shiprocket_awb_code || s.shiprocket_shipment_id || 'Awaiting dispatch'}</b></p>
                     <p>Shiprocket order: {dash(s.shiprocket_order_id)} · Pickup PIN: {dash(s.pickup_pincode)}</p>
+                    {s.pickup_not_before_at && <p className="mt-1">Packing completion deadline: <b>{new Date(s.pickup_not_before_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</b></p>}
+                    {s.pickup_scheduled_date && <p>Shiprocket pickup date requested: <b>{new Date(`${s.pickup_scheduled_date}T00:00:00+05:30`).toLocaleDateString('en-IN', { dateStyle: 'medium' })}</b>{s.pickup_requested_at ? ' · request sent' : ' · awaiting request'}</p>}
                     {s.shipment_note && <p className="mt-1 text-red-700">{s.shipment_note}</p>}
                     <div className="mt-3 border-t border-[#e6ddd1] pt-3"><b>Artist pickup location</b><p>{dash(s.artist_dispatch?.pickup_contact_name)} · {dash(s.artist_dispatch?.pickup_phone)}</p><p>{dash(s.artist_dispatch?.pickup_address)}, {dash(s.artist_dispatch?.pickup_landmark)}, {dash(s.artist_dispatch?.pickup_locality)}, {dash(s.artist_dispatch?.city)}, {dash(s.artist_dispatch?.state)} – {dash(s.artist_dispatch?.pickup_pincode)}</p><p>Shiprocket registered pickup: {dash(s.artist_dispatch?.pickup_location)}</p></div>
                     <div className="mt-3 border-t border-[#e6ddd1] pt-3"><b>Verified Artist bank / UPI details</b><p>{dash(s.payout_account?.account_holder_name)} · A/c {dash(s.payout_account?.bank_account_number || s.payout_account?.bank_account_number_masked)}</p><p>{dash(s.payout_account?.bank_name)} · {dash(s.payout_account?.branch_name)} · IFSC {dash(s.payout_account?.ifsc_code)}</p><p>UPI: {dash(s.payout_account?.upi_id)} · {s.payout_account?.verified_at ? 'IFSC verified' : 'Not verified'}</p></div>
@@ -422,11 +445,12 @@ export default function AdminDashboard() {
           </div>
         </section>}
         {tab === 'ACCOUNTS & LEDGER' && <section>
-          <div className="mb-5 flex flex-wrap items-end justify-between gap-3"><div><p className="eyebrow">Private double-entry accounting</p><h2 className="mt-2 font-display text-3xl">ACCOUNTS &amp; LEDGER</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-muted">Automatically balanced journals for confirmed artwork sales, customer shipping, platform commission, Shiprocket courier charges and documented Artist payout transfers.</p></div><div className="flex flex-wrap gap-2"><button onClick={downloadAccountingCsv} disabled={!accountingEntries.length} className="btn-secondary inline-flex items-center gap-2"><Download size={14}/> Ledger CSV</button><button onClick={downloadFinancialStatementCsv} disabled={!accountingLedgers.length} className="btn-secondary inline-flex items-center gap-2"><Download size={14}/> Statement CSV</button><button onClick={() => window.print()} className="btn-secondary inline-flex items-center gap-2"><Printer size={14}/> Print</button></div></div>
-          <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="mb-5 flex flex-wrap items-end justify-between gap-3"><div><p className="eyebrow">Private double-entry accounting</p><h2 className="mt-2 font-display text-3xl">ACCOUNTS &amp; LEDGER</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-muted">Automatically balanced journals for confirmed artwork sales, customer shipping, Ganesh partner packing, platform commission, Shiprocket courier charges and documented Artist payout transfers.</p></div><div className="flex flex-wrap gap-2"><button onClick={downloadAccountingCsv} disabled={!accountingEntries.length} className="btn-secondary inline-flex items-center gap-2"><Download size={14}/> Ledger CSV</button><button onClick={downloadFinancialStatementCsv} disabled={!accountingLedgers.length} className="btn-secondary inline-flex items-center gap-2"><Download size={14}/> Statement CSV</button><button onClick={() => window.print()} className="btn-secondary inline-flex items-center gap-2"><Printer size={14}/> Print</button></div></div>
+          <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             {[
-              ['Gross sales GMV', accountsLedger.reduce((sum, row) => sum + Number(row.gross_amount || 0), 0)],
+              ['Gross artwork sales', accountsLedger.reduce((sum, row) => sum + Number(row.gross_amount || 0), 0)],
               ['Courier fulfilment amount', accountsLedger.reduce((sum, row) => sum + Number(row.courier_cost || 0), 0)],
+              ['Ganesh packing collected', orders.reduce((sum, order) => sum + Number(order.insured_packing_amount || 0), 0)],
               ['Platform commission', accountsLedger.reduce((sum, row) => sum + Number(row.platform_fee || 0), 0)],
               ['Remaining artist payable', accountsLedger.reduce((sum, row) => sum + payoutRemaining(row), 0)],
             ].map(([label, total]) => <div key={label} className="rounded-2xl border border-[#D9C6A6] bg-[#F3ECE1] p-5"><p className="eyebrow">{label}</p><p className="mt-2 font-display text-3xl">{money(total)}</p></div>)}

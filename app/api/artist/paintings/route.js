@@ -72,6 +72,13 @@ export async function POST(request) {
     const dimensions = String(form.get('dimensions') || '').trim();
     const description = String(form.get('description') || '').trim().slice(0, 3000);
     const framedStatus = form.get('framed_status') === 'Framed' ? 'Framed' : 'Unframed';
+    const deliveryFormats = ['Stretched Canvas (Gallery-Wrapped, Unframed)', 'Framed Artwork (Canvas or Paper, Ready to Hang)', 'Rolled Canvas (Unstretched, Shipped in Protective Tube)', 'Unframed Fine-Art Paper / Print (Flat or Tube)', 'Rigid Panel / Canvas Board / Wood / Metal', 'Other (Specify exact format)'];
+    const deliveryFormat = String(form.get('delivery_format') || deliveryFormats[0]).trim();
+    const deliveryFormatOther = String(form.get('delivery_format_other') || '').trim().slice(0, 160);
+    const packingMode = String(form.get('packing_mode') || 'self').trim();
+    if (!deliveryFormats.includes(deliveryFormat)) return NextResponse.json({ error: 'Choose a supported artwork presentation format.' }, { status: 400 });
+    if (deliveryFormat === 'Other (Specify exact format)' && !deliveryFormatOther) return NextResponse.json({ error: 'Specify the exact presentation and packing format.' }, { status: 400 });
+    if (!['self', 'partner'].includes(packingMode)) return NextResponse.json({ error: 'Choose self-packing or Ganesh partner packing.' }, { status: 400 });
     const stockQuantity = Number(form.get('stock_quantity') || 1);
     const editionDetails = String(form.get('edition_details') || '').trim().slice(0, 180);
     const printDetails = String(form.get('print_details') || '').trim().slice(0, 240);
@@ -94,7 +101,7 @@ export async function POST(request) {
       galleryImages.push(supabase.storage.from('paintings').getPublicUrl(path).data.publicUrl);
     }
     const { data, error } = await supabase.from('paintings').insert({
-      title, medium, dimensions, description, framed_status: framedStatus, gallery_images: galleryImages, certificate_id: `ART-COA-${crypto.randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase()}`,
+      title, medium, dimensions, description, framed_status: framedStatus, delivery_format: deliveryFormat, delivery_format_other: deliveryFormatOther, packing_mode: packingMode, gallery_images: galleryImages, certificate_id: `ART-COA-${crypto.randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase()}`,
       category, ...numeric, image_url: galleryImages[0], stock_quantity: stockQuantity, edition_details: editionDetails, print_details: printDetails, is_sold: false,
       artist_id: artist.id, artist_name: artist.artist_name, avatar_url: artist.avatar_url || artist.profile_photo_url || '', is_approved: true, pickup_pincode: null, pickup_location: 'Primary',
     }).select('*').single();

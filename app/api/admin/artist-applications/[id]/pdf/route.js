@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 const LEGACY_AGREEMENT_TEXTS = {
   original_work: 'I confirm that every submitted artwork is 100% original work created by me and that I hold the rights to sell it.',
   commission_and_payout: 'I agree to the 70% Artist / 30% Platform split, or the 80% Artist / 20% Platform split if I am approved as a Founding Artist, and understand payout is released 48 hours after courier delivery is marked Delivered.',
-  secure_packing: 'I agree to securely pack each sold artwork and make it ready for courier pickup within 48 hours of the order.',
+  secure_packing: 'I agree to securely pack each sold artwork and make it ready for courier pickup within 72 hours of order confirmation.',
   promotion_permission: 'I permit Artiste to use approved artwork photos and promotional / behind-the-scenes clips to market my work.',
 };
 

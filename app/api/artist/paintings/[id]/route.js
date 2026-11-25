@@ -60,10 +60,14 @@ export async function PATCH(request, { params }) {
       if (body.gallery_images !== undefined) requestedGalleryImages = body.gallery_images;
     }
 
-    const allowed = ['title', 'medium', 'dimensions', 'description', 'framed_status', 'price', 'weight_kg', 'length_cm', 'breadth_cm', 'height_cm', 'category', 'edition_details', 'print_details'];
+    const allowed = ['title', 'medium', 'dimensions', 'description', 'framed_status', 'price', 'weight_kg', 'length_cm', 'breadth_cm', 'height_cm', 'category', 'edition_details', 'print_details', 'delivery_format', 'delivery_format_other', 'packing_mode'];
     const update = {};
     for (const key of allowed) if (body[key] !== undefined) update[key] = body[key];
     if (update.framed_status !== undefined && !['Framed', 'Unframed'].includes(update.framed_status)) return NextResponse.json({ error: 'Choose Framed or Unframed.' }, { status: 400 });
+    if (update.delivery_format !== undefined && !['Stretched Canvas (Gallery-Wrapped, Unframed)', 'Framed Artwork (Canvas or Paper, Ready to Hang)', 'Rolled Canvas (Unstretched, Shipped in Protective Tube)', 'Unframed Fine-Art Paper / Print (Flat or Tube)', 'Rigid Panel / Canvas Board / Wood / Metal', 'Other (Specify exact format)'].includes(update.delivery_format)) return NextResponse.json({ error: 'Choose a supported artwork presentation format.' }, { status: 400 });
+    if (update.delivery_format_other !== undefined) update.delivery_format_other = String(update.delivery_format_other).trim().slice(0, 160);
+    if (update.delivery_format === 'Other (Specify exact format)' && !String(update.delivery_format_other ?? existing.delivery_format_other ?? '').trim()) return NextResponse.json({ error: 'Specify the exact presentation and packing format.' }, { status: 400 });
+    if (update.packing_mode !== undefined && !['self', 'partner'].includes(update.packing_mode)) return NextResponse.json({ error: 'Choose self-packing or Ganesh partner packing.' }, { status: 400 });
 
     if (body.stock_quantity !== undefined) {
       const quantity = Number(body.stock_quantity);

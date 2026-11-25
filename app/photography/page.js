@@ -15,13 +15,13 @@ export default async function PhotographyPage() {
 
   try {
     const { data, error } = await supabase.from('paintings')
-      .select('id,title,medium,dimensions,price,weight_kg,length_cm,breadth_cm,height_cm,image_url,is_sold,artist_id,artist_name,avatar_url,is_approved,category,stock_quantity,edition_details,print_details,gallery_images,framed_status,certificate_id,description')
+      .select('id,title,medium,dimensions,price,weight_kg,length_cm,breadth_cm,height_cm,image_url,is_sold,artist_id,artist_name,avatar_url,is_approved,category,stock_quantity,edition_details,print_details,gallery_images,framed_status,certificate_id,description,delivery_format,delivery_format_other')
       .eq('is_sold', false)
       .gt('stock_quantity', 0)
       .eq('is_approved', true)
       .order('created_at', { ascending: false });
     if (error) throw error;
-    paintings = data || [];
+    paintings = (data || []).map((painting) => ({ ...painting, delivery_format: painting.delivery_format || 'Stretched Canvas (Gallery-Wrapped, Unframed)', delivery_format_other: painting.delivery_format_other || '' }));
 
     let artistResult = await supabase.from('artists')
       .select('id,artist_name,avatar_url,city,state,bio,creator_role,is_approved,is_suspended')
