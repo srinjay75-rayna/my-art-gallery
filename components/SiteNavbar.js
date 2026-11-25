@@ -14,6 +14,7 @@ import {
   Wallet,
   MapPin,
   FileText,
+  ShieldCheck,
 } from 'lucide-react';
 
 import {
@@ -43,6 +44,7 @@ export default function SiteNavbar() {
   const router = useRouter();
 
   const [identity, setIdentity] = useState(null);
+  const [isHostAuthenticated, setIsHostAuthenticated] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [cartCount, setCartCount] = useState(0);
@@ -94,6 +96,27 @@ export default function SiteNavbar() {
       unsubscribeSession();
       window.removeEventListener('artiste:cart-count', updateCount);
       window.removeEventListener('storage', handleStorage);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const refreshHostSession = async () => {
+      try {
+        const response = await fetch('/api/admin/session', { cache: 'no-store', credentials: 'include' });
+        const data = await response.json().catch(() => ({}));
+        if (active) setIsHostAuthenticated(Boolean(response.ok && data.authenticated));
+      } catch {
+        if (active) setIsHostAuthenticated(false);
+      }
+    };
+    refreshHostSession();
+    window.addEventListener('artiste:admin-session', refreshHostSession);
+    window.addEventListener('focus', refreshHostSession);
+    return () => {
+      active = false;
+      window.removeEventListener('artiste:admin-session', refreshHostSession);
+      window.removeEventListener('focus', refreshHostSession);
     };
   }, []);
 
@@ -326,6 +349,18 @@ export default function SiteNavbar() {
     }
   }
 
+  async function signOutHost() {
+    try {
+      await fetch('/api/admin/logout', { method: 'POST', credentials: 'include', cache: 'no-store' });
+    } finally {
+      setIsHostAuthenticated(false);
+      setProfileOpen(false);
+      setMobileOpen(false);
+      window.dispatchEvent(new Event('artiste:admin-session'));
+      router.refresh();
+    }
+  }
+
   /* ==========================================
      CART NAVIGATION
   ========================================== */
@@ -472,7 +507,9 @@ export default function SiteNavbar() {
               aria-haspopup="menu"
               aria-expanded={profileOpen}
             >
-              {identity?.avatar ? (
+              {isHostAuthenticated ? (
+                <span className="font-serif text-base font-bold">H</span>
+              ) : identity?.avatar ? (
                 <img
                   src={identity.avatar}
                   alt=""
@@ -496,7 +533,35 @@ export default function SiteNavbar() {
                 role="menu"
               >
 
-                {identity ? (
+                {isHostAuthenticated ? (
+                  <>
+                    <div className="flex items-center gap-3 border-b border-[#D9C6A6]/70 px-4 pb-3 pt-2">
+                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#C69C6D] bg-[#F3ECE1] font-serif text-base font-bold text-[#263832]">H</span>
+                      <span className="min-w-0">
+                        <b className="block truncate text-sm text-[#263832]">Artiste Host</b>
+                        <small className="mt-1 block text-[9px] uppercase tracking-[.15em] text-[#8A7864]">Super-admin session</small>
+                      </span>
+                    </div>
+                    <Link
+                      href="/studio-vault-owner"
+                      role="menuitem"
+                      onClick={() => { setProfileOpen(false); setMobileOpen(false); }}
+                      className="flex items-center gap-3 px-4 py-3 text-xs font-medium text-[#45534B] transition hover:bg-[#F3ECE1] hover:text-[#B85D3B]"
+                    >
+                      <ShieldCheck size={15} strokeWidth={1.7}/>
+                      Studio Vault
+                    </Link>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={signOutHost}
+                      className="flex w-full items-center gap-3 border-t border-[#D9C6A6]/70 px-4 py-3 text-left text-xs font-semibold text-[#B85D3B] transition hover:bg-[#F3ECE1]"
+                    >
+                      <LogOut size={15}/>
+                      Sign Out
+                    </button>
+                  </>
+                ) : identity ? (
                   <>
 
                     <div className="flex items-center gap-3 border-b border-[#D9C6A6]/70 px-4 pb-3 pt-2">

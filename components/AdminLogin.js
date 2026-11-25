@@ -22,6 +22,7 @@ export default function AdminLogin() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Could not sign in.');
       setPassword('');
+      window.dispatchEvent(new Event('artiste:admin-session'));
       router.refresh();
     } catch (err) {
       setError(err.message || 'Could not sign in.');

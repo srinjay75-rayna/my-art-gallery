@@ -57,22 +57,6 @@ export async function POST(request) {
       if (error) throw error;
       return NextResponse.json({ ledger: data }, { status: 201 });
     }
-    if (body.action === 'post_voucher') {
-      const description = String(body.description || '').trim().slice(0, 240);
-      const reference = String(body.reference || '').trim().slice(0, 120);
-      const lines = Array.isArray(body.lines) ? body.lines : [];
-      if (!description || lines.length < 2) return NextResponse.json({ error: 'A voucher description and at least two ledger lines are required.' }, { status: 400 });
-      const { data, error } = await supabase.rpc('artiste_post_accounting_voucher', {
-        p_description: description,
-        p_voucher_date: body.voucher_date || new Date().toISOString().slice(0, 10),
-        p_voucher_type: 'manual',
-        p_reference: reference,
-        p_posting_key: null,
-        p_lines: lines,
-      });
-      if (error) throw error;
-      return NextResponse.json({ voucherId: data, message: 'Balanced journal voucher posted.' }, { status: 201 });
-    }
     return NextResponse.json({ error: 'Unsupported accounting action.' }, { status: 400 });
   } catch (error) {
     return NextResponse.json({ error: error.message || 'Could not save accounting record.' }, { status: 400 });

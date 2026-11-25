@@ -1387,8 +1387,11 @@ create table if not exists public.accounting_ledgers (
   updated_at timestamptz not null default now()
 );
 
+create sequence if not exists public.accounting_voucher_no_seq;
+
 create table if not exists public.accounting_vouchers (
   id uuid primary key default gen_random_uuid(),
+  voucher_no text not null default ('VCH-' || to_char(current_date, 'YYYY') || '-' || lpad(nextval('public.accounting_voucher_no_seq')::text, 6, '0')),
   voucher_date date not null default current_date,
   voucher_type text not null default 'journal',
   description text not null,
@@ -1396,6 +1399,27 @@ create table if not exists public.accounting_vouchers (
   posting_key text unique,
   created_at timestamptz not null default now()
 );
+
+alter table public.accounting_vouchers add column if not exists voucher_no text;
+with numbered_vouchers as (
+  select id, voucher_date, row_number() over (partition by extract(year from voucher_date) order by created_at, id) as row_number
+  from public.accounting_vouchers
+  where voucher_no is null
+)
+update public.accounting_vouchers as voucher
+set voucher_no = 'VCH-' || to_char(numbered_vouchers.voucher_date, 'YYYY') || '-' || lpad(numbered_vouchers.row_number::text, 6, '0')
+from numbered_vouchers
+where voucher.id = numbered_vouchers.id;
+
+select setval(
+  'public.accounting_voucher_no_seq',
+  greatest(coalesce((select max(substring(voucher_no from '([0-9]+)$')::bigint) from public.accounting_vouchers), 0) + 1, 1),
+  false
+);
+
+alter table public.accounting_vouchers alter column voucher_no set not null;
+alter table public.accounting_vouchers alter column voucher_no set default ('VCH-' || to_char(current_date, 'YYYY') || '-' || lpad(nextval('public.accounting_voucher_no_seq')::text, 6, '0'));
+create unique index if not exists accounting_vouchers_voucher_no_uidx on public.accounting_vouchers(voucher_no);
 
 create table if not exists public.accounting_entries (
   id uuid primary key default gen_random_uuid(),
@@ -1427,6 +1451,7 @@ alter table public.accounting_vouchers enable row level security;
 alter table public.accounting_entries enable row level security;
 revoke all on public.accounting_ledgers, public.accounting_vouchers, public.accounting_entries from anon, authenticated;
 grant all on public.accounting_ledgers, public.accounting_vouchers, public.accounting_entries to service_role;
+grant usage, select on sequence public.accounting_voucher_no_seq to service_role;
 
 create or replace function public.artiste_post_accounting_voucher(
   p_description text,
@@ -1508,9 +1533,6 @@ declare
 begin
   select * into target from public.artist_payouts where id = p_payout_id for update;
   if target.id is null then raise exception 'Artist payout ledger entry not found.'; end if;
-  if target.payout_available_at is null or target.payout_available_at > now() then
-    raise exception 'Payout can only be recorded after the courier confirms delivery and the 48-hour hold has passed.';
-  end if;
   already_paid := coalesce(target.payout_paid_amount, 0);
   if already_paid = 0 and lower(coalesce(target.payout_status, '')) = 'paid' then already_paid := target.artist_payout; end if;
   due_amount := greatest(0, target.artist_payout - already_paid);

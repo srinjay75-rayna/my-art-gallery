@@ -37,14 +37,11 @@ export async function POST(request) {
     }
     const { data: existing, error: lookupError } = await supabase
       .from('artist_payouts')
-      .select('id,artist_name,artist_payout,payout_paid_amount,payout_status,payout_available_at')
+      .select('id,artist_name,artist_payout,payout_paid_amount,payout_status')
       .eq('id', payoutId)
       .maybeSingle();
     if (lookupError) throw lookupError;
     if (!existing) return NextResponse.json({ error: 'Artist payout ledger entry not found.' }, { status: 404 });
-    if (!existing.payout_available_at || new Date(existing.payout_available_at).getTime() > Date.now()) {
-      return NextResponse.json({ error: 'Payout can only be recorded after Delivered + 48 hours.' }, { status: 409 });
-    }
     const alreadyPaid = Number(existing.payout_paid_amount || 0) || (['paid', 'Paid'].includes(existing.payout_status) ? Number(existing.artist_payout || 0) : 0);
     const remaining = Math.max(0, Number(existing.artist_payout || 0) - alreadyPaid);
     if (amount - remaining > 0.005) {
