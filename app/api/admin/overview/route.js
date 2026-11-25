@@ -73,7 +73,12 @@ export async function GET() {
       ...artist,
       payout_account: accountByArtist.get(artist.id) || null,
     }));
-    return NextResponse.json({ artists: enrichedArtists, orders: enrichedOrders, payouts });
+    const enrichedPayouts = await Promise.all(payouts.map(async (payout) => {
+      if (!payout.payout_proof_url) return payout;
+      const { data: signed } = await supabase.storage.from('payout-proofs').createSignedUrl(payout.payout_proof_url, 60 * 60);
+      return { ...payout, payout_proof_signed_url: signed?.signedUrl || '' };
+    }));
+    return NextResponse.json({ artists: enrichedArtists, orders: enrichedOrders, payouts: enrichedPayouts });
   } catch (error) {
     return NextResponse.json({ error: error.message || 'Could not load admin overview.' }, { status: 500 });
   }

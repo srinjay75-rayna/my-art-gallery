@@ -334,7 +334,7 @@ create table if not exists public.artist_payouts (
   platform_fee numeric(12,2) not null default 0,
   artist_payout numeric(12,2) not null default 0,
   creator_role text not null default 'Painter',
-  commission_rate numeric(5,4) not null default 0.3000,
+  commission_rate numeric(5,4) not null default 0.2500,
   payout_status text not null default 'Pending' check (payout_status in ('Pending', 'Paid')),
   paid_at timestamptz,
   created_at timestamptz not null default now(),
@@ -348,7 +348,7 @@ alter table public.artist_payouts add column if not exists gross_amount numeric(
 alter table public.artist_payouts add column if not exists platform_fee numeric(12,2) not null default 0;
 alter table public.artist_payouts add column if not exists artist_payout numeric(12,2) not null default 0;
 alter table public.artist_payouts add column if not exists creator_role text not null default 'Painter';
-alter table public.artist_payouts add column if not exists commission_rate numeric(5,4) not null default 0.3000;
+alter table public.artist_payouts add column if not exists commission_rate numeric(5,4) not null default 0.2500;
 alter table public.artist_payouts add column if not exists payout_status text not null default 'Pending';
 alter table public.artist_payouts add column if not exists paid_at timestamptz;
 alter table public.artist_payouts add column if not exists created_at timestamptz not null default now();
@@ -964,10 +964,9 @@ end $$;
 create index if not exists paintings_stock_available_idx on public.paintings(is_approved, stock_quantity, created_at desc);
 
 alter table public.artist_payouts add column if not exists creator_role text not null default 'Painter';
-alter table public.artist_payouts add column if not exists commission_rate numeric(5,4) not null default 0.3000;
+alter table public.artist_payouts add column if not exists commission_rate numeric(5,4) not null default 0.2500;
 update public.artist_payouts ap set
-  creator_role = coalesce(a.creator_role, 'Painter'),
-  commission_rate = 0.3000
+  creator_role = coalesce(a.creator_role, 'Painter')
 from public.artists a where ap.artist_id = a.id;
 
 -- Store a stable Bill of Supply number on the paid order itself. The sequence is
@@ -1277,11 +1276,286 @@ drop index if exists public.artists_user_id_uidx;
 create unique index if not exists artists_user_id_creator_role_uidx
   on public.artists(user_id, creator_role);
 
--- Existing ledger snapshots migrate to the V15 payout split. The new rate and
--- amounts are recalculated consistently for every open or settled row.
-update public.artist_payouts ap
-set commission_rate = case when coalesce(a.is_founding_artist, false) then 0.2000 else 0.3000 end,
-    platform_fee = round(ap.gross_amount * case when coalesce(a.is_founding_artist, false) then 0.2000 else 0.3000 end, 2),
-    artist_payout = ap.gross_amount - round(ap.gross_amount * case when coalesce(a.is_founding_artist, false) then 0.2000 else 0.3000 end, 2)
-from public.artists a
-where ap.artist_id = a.id;
+-- Completed order commission snapshots are historical accounting records and must not be recalculated.
+
+-- -----------------------------------------------------------------------------
+-- V17: dynamic commission tiers, verifiable payout receipts, and double-entry GL
+-- This migration is additive and preserves historical payout snapshots.
+-- -----------------------------------------------------------------------------
+
+alter table public.artists add column if not exists commission_rate numeric(5,4) not null default 0.2500;
+update public.artists set commission_rate = case when is_founding_artist then 0.2000 else 0.2500 end;
+
+alter table public.artist_applications add column if not exists agreement_texts jsonb not null default '{}'::jsonb;
+alter table public.artist_applications add column if not exists approval_tier text;
+alter table public.artist_applications add column if not exists approved_at timestamptz;
+alter table public.artist_applications add column if not exists commission_rate numeric(5,4);
+update public.artist_applications a
+set approval_tier = case when coalesce(ar.is_founding_artist, false) then '80/20' else '75/25' end,
+    commission_rate = case when coalesce(ar.is_founding_artist, false) then 0.2000 else 0.2500 end,
+    approved_at = coalesce(a.approved_at, a.updated_at, a.created_at)
+from public.artists ar
+where ar.id = a.artist_id
+  and lower(coalesce(a.application_status, '')) = 'approved'
+  and (a.approval_tier is null or a.commission_rate is null or a.approved_at is null);
+
+alter table public.artist_payouts add column if not exists payout_paid_amount numeric(12,2) not null default 0;
+alter table public.artist_payouts add column if not exists payout_utr text not null default '';
+alter table public.artist_payouts add column if not exists payout_proof_url text;
+alter table public.artist_payouts add column if not exists payout_paid_at timestamptz;
+alter table public.artist_payouts alter column payout_status set default 'pending';
+do $$
+begin
+  alter table public.artist_payouts drop constraint if exists artist_payouts_payout_status_check;
+  if not exists (select 1 from pg_constraint where conname = 'artist_payouts_payout_status_v17_check') then
+    alter table public.artist_payouts add constraint artist_payouts_payout_status_v17_check
+      check (payout_status in ('pending', 'part_paid', 'paid', 'Pending', 'Paid'));
+  end if;
+end $$;
+
+-- The application approval itself assigns the tier under an advisory transaction lock.
+-- Existing founder flags count toward the original ten reserved slots.
+create or replace function public.artiste_approve_founding_application(p_application_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  target public.artist_applications%rowtype;
+  approved_founders integer;
+  next_rate numeric(5,4);
+  next_tier text;
+  approval_time timestamptz := now();
+begin
+  perform pg_advisory_xact_lock(hashtext('artiste_v17_founding_artist_tier_allocation'));
+  select * into target from public.artist_applications where id = p_application_id for update;
+  if target.id is null then raise exception 'Founding Artist application not found.'; end if;
+  if lower(coalesce(target.application_status, '')) not in ('pending', 'submitted') then
+    raise exception 'This application has already been reviewed.';
+  end if;
+
+  select count(*)::integer into approved_founders from public.artists where is_founding_artist = true;
+  if approved_founders < 10 then
+    next_rate := 0.2000;
+    next_tier := '80/20';
+  else
+    next_rate := 0.2500;
+    next_tier := '75/25';
+  end if;
+
+  update public.artist_applications
+    set application_status = 'approved',
+        approval_tier = next_tier,
+        commission_rate = next_rate,
+        approved_at = approval_time,
+        updated_at = approval_time
+    where id = p_application_id;
+
+  update public.artists
+    set is_founding_artist = (next_tier = '80/20'),
+        commission_rate = next_rate,
+        approved = true,
+        is_approved = true,
+        is_suspended = false,
+        updated_at = approval_time
+    where id = target.artist_id;
+  if not found then raise exception 'The Artist profile linked to this application no longer exists.'; end if;
+
+  return jsonb_build_object(
+    'application_id', p_application_id,
+    'artist_id', target.artist_id,
+    'approval_tier', next_tier,
+    'commission_rate', next_rate,
+    'approved_at', approval_time,
+    'founding_slots_filled', case when next_tier = '80/20' then approved_founders + 1 else least(approved_founders, 10) end
+  );
+end;
+$$;
+revoke all on function public.artiste_approve_founding_application(uuid) from public, anon, authenticated;
+grant execute on function public.artiste_approve_founding_application(uuid) to service_role;
+
+create table if not exists public.accounting_ledgers (
+  id uuid primary key default gen_random_uuid(),
+  ledger_code text not null unique,
+  ledger_name text not null,
+  ledger_type text not null check (ledger_type in ('asset', 'liability', 'equity', 'income', 'expense')),
+  description text not null default '',
+  is_system boolean not null default false,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.accounting_vouchers (
+  id uuid primary key default gen_random_uuid(),
+  voucher_date date not null default current_date,
+  voucher_type text not null default 'journal',
+  description text not null,
+  reference text not null default '',
+  posting_key text unique,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.accounting_entries (
+  id uuid primary key default gen_random_uuid(),
+  voucher_id uuid not null references public.accounting_vouchers(id) on delete cascade,
+  ledger_id uuid not null references public.accounting_ledgers(id) on delete restrict,
+  description text not null default '',
+  debit numeric(14,2) not null default 0 check (debit >= 0),
+  credit numeric(14,2) not null default 0 check (credit >= 0),
+  created_at timestamptz not null default now(),
+  constraint accounting_entries_one_side_check check ((debit > 0 and credit = 0) or (credit > 0 and debit = 0))
+);
+create index if not exists accounting_entries_voucher_idx on public.accounting_entries(voucher_id);
+create index if not exists accounting_entries_ledger_idx on public.accounting_entries(ledger_id, created_at desc);
+
+insert into public.accounting_ledgers (ledger_code, ledger_name, ledger_type, description, is_system)
+values
+  ('1000', 'Razorpay Clearing', 'asset', 'Captured customer payments awaiting settlement', true),
+  ('1010', 'Bank / UPI', 'asset', 'Manual bank and UPI payout account', true),
+  ('2000', 'Artist Payable', 'liability', 'Artist earnings due for settlement', true),
+  ('2010', 'Shiprocket Payable', 'liability', 'Quoted courier charges accrued and awaiting provider settlement', true),
+  ('3000', 'Owner Capital', 'equity', 'Owner capital and opening balances', true),
+  ('4000', 'Platform Commission Revenue', 'income', 'Artiste platform commission earned on artwork sales', true),
+  ('4100', 'Shipping Recovery', 'income', 'Shipping amount collected from customers', true),
+  ('5000', 'Courier Expense', 'expense', 'Courier and fulfilment costs', true)
+on conflict (ledger_code) do update set ledger_name = excluded.ledger_name, ledger_type = excluded.ledger_type, is_system = true;
+
+alter table public.accounting_ledgers enable row level security;
+alter table public.accounting_vouchers enable row level security;
+alter table public.accounting_entries enable row level security;
+revoke all on public.accounting_ledgers, public.accounting_vouchers, public.accounting_entries from anon, authenticated;
+grant all on public.accounting_ledgers, public.accounting_vouchers, public.accounting_entries to service_role;
+
+create or replace function public.artiste_post_accounting_voucher(
+  p_description text,
+  p_voucher_date date,
+  p_voucher_type text,
+  p_reference text,
+  p_posting_key text,
+  p_lines jsonb
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  voucher_id uuid;
+  debit_total numeric(14,2);
+  credit_total numeric(14,2);
+  line_count integer;
+begin
+  if jsonb_typeof(p_lines) <> 'array' then raise exception 'Voucher entries must be an array.'; end if;
+  select count(*), coalesce(sum((value->>'debit')::numeric), 0), coalesce(sum((value->>'credit')::numeric), 0)
+    into line_count, debit_total, credit_total
+    from jsonb_array_elements(p_lines);
+  if line_count < 2 then raise exception 'A balanced voucher needs at least two ledger entries.'; end if;
+  if debit_total <= 0 or round(debit_total, 2) <> round(credit_total, 2) then
+    raise exception 'Voucher is not balanced: total debit must equal total credit.';
+  end if;
+  if exists (
+    select 1 from jsonb_array_elements(p_lines) line
+    left join public.accounting_ledgers l on l.id = (line->>'ledger_id')::uuid and l.active = true
+    where l.id is null
+       or coalesce((line->>'debit')::numeric, 0) < 0
+       or coalesce((line->>'credit')::numeric, 0) < 0
+       or ((coalesce((line->>'debit')::numeric, 0) > 0) = (coalesce((line->>'credit')::numeric, 0) > 0))
+  ) then raise exception 'Each voucher line must reference an active ledger and contain either a debit or a credit.'; end if;
+
+  if p_posting_key is not null and p_posting_key <> '' then
+    select id into voucher_id from public.accounting_vouchers where posting_key = p_posting_key;
+    if voucher_id is not null then return voucher_id; end if;
+  end if;
+
+  insert into public.accounting_vouchers (voucher_date, voucher_type, description, reference, posting_key)
+  values (coalesce(p_voucher_date, current_date), coalesce(nullif(p_voucher_type, ''), 'journal'), p_description, coalesce(p_reference, ''), nullif(p_posting_key, ''))
+  returning id into voucher_id;
+
+  insert into public.accounting_entries (voucher_id, ledger_id, description, debit, credit)
+  select voucher_id, (line->>'ledger_id')::uuid, coalesce(line->>'description', p_description),
+         coalesce((line->>'debit')::numeric, 0), coalesce((line->>'credit')::numeric, 0)
+  from jsonb_array_elements(p_lines) line;
+  return voucher_id;
+end;
+$$;
+revoke all on function public.artiste_post_accounting_voucher(text, date, text, text, text, jsonb) from public, anon, authenticated;
+grant execute on function public.artiste_post_accounting_voucher(text, date, text, text, text, jsonb) to service_role;
+
+create or replace function public.artiste_record_payout_payment(
+  p_payout_id uuid,
+  p_amount numeric,
+  p_utr text,
+  p_proof_path text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  target public.artist_payouts%rowtype;
+  already_paid numeric(12,2);
+  due_amount numeric(12,2);
+  cumulative_paid numeric(12,2);
+  next_status text;
+  payable_ledger uuid;
+  bank_ledger uuid;
+  voucher_key text;
+  updated public.artist_payouts%rowtype;
+  pending_rows integer;
+begin
+  select * into target from public.artist_payouts where id = p_payout_id for update;
+  if target.id is null then raise exception 'Artist payout ledger entry not found.'; end if;
+  if target.payout_available_at is null or target.payout_available_at > now() then
+    raise exception 'Payout can only be recorded after the courier confirms delivery and the 48-hour hold has passed.';
+  end if;
+  already_paid := coalesce(target.payout_paid_amount, 0);
+  if already_paid = 0 and lower(coalesce(target.payout_status, '')) = 'paid' then already_paid := target.artist_payout; end if;
+  due_amount := greatest(0, target.artist_payout - already_paid);
+  if p_amount is null or p_amount <= 0 or p_amount > due_amount then raise exception 'Enter an amount greater than zero and no more than the remaining artist payout.'; end if;
+  if coalesce(p_proof_path, '') = '' then raise exception 'A payment proof file is mandatory.'; end if;
+  cumulative_paid := round(already_paid + p_amount, 2);
+  next_status := case when cumulative_paid >= target.artist_payout then 'paid' else 'part_paid' end;
+  update public.artist_payouts
+    set payout_paid_amount = cumulative_paid,
+        payout_utr = coalesce(nullif(p_utr, ''), payout_utr, ''),
+        payout_proof_url = p_proof_path,
+        payout_paid_at = now(),
+        paid_at = case when next_status = 'paid' then coalesce(paid_at, now()) else paid_at end,
+        payout_status = next_status
+    where id = p_payout_id
+    returning * into updated;
+
+  select id into payable_ledger from public.accounting_ledgers where ledger_code = '2000' and active = true;
+  select id into bank_ledger from public.accounting_ledgers where ledger_code = '1010' and active = true;
+  if payable_ledger is null or bank_ledger is null then raise exception 'Default Artist Payable and Bank / UPI ledgers are missing. Run database/schema.sql.'; end if;
+  voucher_key := 'payout-payment:' || p_payout_id::text || ':' || updated.payout_paid_amount::text || ':' || md5(p_proof_path);
+  perform public.artiste_post_accounting_voucher(
+    'Artist payout payment · ' || target.artist_name,
+    current_date,
+    'payout',
+    target.order_ref,
+    voucher_key,
+    jsonb_build_array(
+      jsonb_build_object('ledger_id', payable_ledger, 'debit', p_amount, 'credit', 0, 'description', 'Settle Artist payable'),
+      jsonb_build_object('ledger_id', bank_ledger, 'debit', 0, 'credit', p_amount, 'description', 'Bank / UPI payout made')
+    )
+  );
+
+  select count(*) into pending_rows from public.artist_payouts
+    where order_id = target.order_id
+      and coalesce(payout_paid_amount, 0) < artist_payout
+      and lower(coalesce(payout_status, '')) <> 'paid';
+  update public.orders set payout_status = case when pending_rows = 0 then 'Paid' else 'Part-Paid' end where id = target.order_id;
+  return jsonb_build_object('payout', to_jsonb(updated), 'remaining_pending', greatest(0, updated.artist_payout - updated.payout_paid_amount));
+end;
+$$;
+revoke all on function public.artiste_record_payout_payment(uuid, numeric, text, text) from public, anon, authenticated;
+grant execute on function public.artiste_record_payout_payment(uuid, numeric, text, text) to service_role;
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('payout-proofs', 'payout-proofs', false, 10485760, array['image/jpeg','image/png','image/webp','image/avif','application/pdf'])
+on conflict (id) do update set public = false, file_size_limit = 10485760, allowed_mime_types = excluded.allowed_mime_types;
+

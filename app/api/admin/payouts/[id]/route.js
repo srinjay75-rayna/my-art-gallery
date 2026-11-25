@@ -9,19 +9,13 @@ export async function PATCH(request, { params }) {
   try {
     const { id } = await params;
     const body = await request.json();
-    if (!['Pending', 'Paid'].includes(body.payout_status)) {
-      return NextResponse.json({ error: 'Payout status must be Pending or Paid.' }, { status: 400 });
+    if (body.payout_status !== 'Pending') {
+      return NextResponse.json({ error: 'Payment proof is mandatory. Use the payout proof settlement flow to record an Artist payment.' }, { status: 409 });
     }
     const supabase = requireServiceRole();
     const { data: existing, error: existingError } = await supabase.from('artist_payouts').select('id,payout_status,delivered_at,payout_available_at').eq('id', id).maybeSingle();
     if (existingError) throw existingError;
     if (!existing) return NextResponse.json({ error: 'Artist payout ledger entry not found.' }, { status: 404 });
-    if (body.payout_status === 'Paid') {
-      const eligibleAt = existing.payout_available_at ? new Date(existing.payout_available_at).getTime() : 0;
-      if (!eligibleAt || eligibleAt > Date.now()) {
-        return NextResponse.json({ error: existing.delivered_at ? `Payout becomes eligible 48 hours after delivery (${new Date(eligibleAt).toLocaleString('en-IN')}).` : 'Payout cannot be marked paid until the courier delivery is confirmed and the 48-hour release window has passed.' }, { status: 409 });
-      }
-    }
     const { data, error } = await supabase.rpc('set_artiste_payout_status', {
       p_payout_id: id,
       p_status: body.payout_status,

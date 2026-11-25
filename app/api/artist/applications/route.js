@@ -8,7 +8,13 @@ export const dynamic = 'force-dynamic';
 
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/avif']);
 const IMAGE_EXTENSIONS = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/avif': 'avif' };
-const AGREEMENT_KEYS = ['original_work', 'commission_and_payout', 'secure_packing', 'promotion_permission'];
+const AGREEMENT_TEXTS = {
+  original_work: 'I confirm that every submitted artwork is 100% original work created by me and that I hold the rights to sell it.',
+  commission_and_payout: 'I agree to the applicable commission tier: 80% Artist / 20% Platform for the first 10 approved Founding Artists, and 75% Artist / 25% Platform for every subsequent approved artist. I understand payout is released 48 hours after courier delivery is marked Delivered.',
+  secure_packing: 'I agree to securely pack each sold artwork and make it ready for courier pickup within 48 hours of the order.',
+  promotion_permission: 'I permit Artiste to use approved artwork photos and promotional / behind-the-scenes clips to market my work.',
+};
+const AGREEMENT_KEYS = Object.keys(AGREEMENT_TEXTS);
 
 async function getArtist(supabase, user) {
   const role = user.user_metadata?.creator_role === 'Photographer' ? 'Photographer' : 'Painter';
@@ -73,6 +79,7 @@ export async function POST(request) {
       art_style_bio: bio,
       artwork_photos: artworkPhotos,
       agreements: agreementValues,
+      agreement_texts: Object.fromEntries(AGREEMENT_KEYS.map((key) => [key, agreementValues[key] ? AGREEMENT_TEXTS[key] : ''])),
       updated_at: new Date().toISOString(),
     };
     const { data: savedApplication, error: applicationError } = await supabase.from('artist_applications').insert(application).select('*').single();

@@ -7,7 +7,7 @@ import siteConfig from '@/lib/siteConfig';
 
 const agreementItems = [
   ['original_work', 'I confirm that every submitted artwork is 100% original work created by me and that I hold the rights to sell it.'],
-  ['commission_and_payout', 'I agree to the 70% Artist / 30% Platform split, or the 80% Artist / 20% Platform split if I am approved as a Founding Artist, and understand payout is released 48 hours after courier delivery is marked Delivered.'],
+  ['commission_and_payout', 'I agree to the applicable commission tier: 80% Artist / 20% Platform for the first 10 approved Founding Artists, and 75% Artist / 25% Platform for every subsequent approved artist. I understand payout is released 48 hours after courier delivery is marked Delivered.'],
   ['secure_packing', 'I agree to securely pack each sold artwork and make it ready for courier pickup within 48 hours of the order.'],
   ['promotion_permission', 'I permit Artiste to use approved artwork photos and promotional / behind-the-scenes clips to market my work.'],
 ];
@@ -21,6 +21,7 @@ export default function FoundingArtistApplication() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const allAgreementsAccepted = agreementItems.every(([key]) => agreements[key] === true);
   function update(key, value) { setValues((current) => ({ ...current, [key]: value })); }
   async function submit(event) {
     event.preventDefault(); setBusy(true); setError(''); setNotice('');
@@ -40,7 +41,7 @@ export default function FoundingArtistApplication() {
   return <section className="mt-8 rounded-3xl border border-[#D9C6A6] bg-[#FAF6F0] p-6 shadow-soft md:p-8">
     <p className="eyebrow flex items-center gap-2"><ClipboardList size={14}/> Founding Artist application</p>
     <h2 className="mt-2 font-display text-3xl">Apply to become a Founding Artist.</h2>
-    <p className="mt-2 max-w-2xl text-xs leading-6 text-muted">Submit your profile, a short bio and 3–5 portfolio photos. Approved Founding Artists receive an 80% artist share. Bank details can be added later.</p>
+    <p className="mt-2 max-w-2xl text-xs leading-6 text-muted">Submit your profile, a short bio and 3–5 portfolio photos. The first 10 approved Founding Artists receive an 80% artist share; every subsequent approved artist receives a 75% share. Bank details can be added later.</p>
     <form onSubmit={submit} className="mt-6 grid gap-5">
       <fieldset className="grid gap-3 md:grid-cols-2"><legend className="mb-2 text-sm font-semibold">1. Full Name &amp; Artist / Studio Name</legend>
         <label className="label">Full name<input className="field mt-1" required value={values.full_name} onChange={(e) => update('full_name', e.target.value)}/></label>
@@ -59,7 +60,7 @@ export default function FoundingArtistApplication() {
       <fieldset><legend className="mb-3 text-sm font-semibold">6. Four mandatory agreements</legend><div className="grid gap-3">{agreementItems.map(([key,label]) => <label key={key} className="flex items-start gap-3 text-xs leading-5"><input className="mt-1" type="checkbox" checked={Boolean(agreements[key])} onChange={(e) => setAgreements((current) => ({...current,[key]:e.target.checked}))}/><span>{label}</span></label>)}</div></fieldset>
       {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
       {notice && <p role="status" className="flex items-start gap-2 rounded-xl bg-green-50 p-3 text-sm text-green-800"><CheckCircle2 size={16} className="mt-0.5 shrink-0"/>{notice}</p>}
-      <button disabled={busy} className="btn-primary inline-flex items-center justify-center gap-2">{busy ? 'Submitting application…' : 'Submit Founding Artist Application'}<ArrowUpRight size={15}/></button>
+      <button type="submit" disabled={busy || !allAgreementsAccepted} aria-disabled={busy || !allAgreementsAccepted} className="btn-primary inline-flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-45">{busy ? 'Submitting application…' : 'Submit Founding Artist Application'}<ArrowUpRight size={15}/></button>
     </form>
   </section>;
 }

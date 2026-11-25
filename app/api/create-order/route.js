@@ -73,7 +73,7 @@ export async function POST(request) {
     const artistIds = [...new Set(paintings.map((painting) => painting.artist_id).filter(Boolean))];
     const paintingIds = paintings.map((painting) => painting.id);
     const [{ data: artists, error: artistsError }, { data: payoutAccounts, error: payoutError }, { data: legacyOrigins, error: originError }] = await Promise.all([
-      artistIds.length ? supabase.from('artists').select('id,user_id,artist_name,creator_role,is_approved,is_founding_artist,pickup_contact_name,pickup_phone,pickup_address,pickup_landmark,pickup_locality,city,state,pickup_pincode,pickup_location').in('id', artistIds) : Promise.resolve({ data: [], error: null }),
+      artistIds.length ? supabase.from('artists').select('id,user_id,artist_name,creator_role,is_approved,is_founding_artist,commission_rate,pickup_contact_name,pickup_phone,pickup_address,pickup_landmark,pickup_locality,city,state,pickup_pincode,pickup_location').in('id', artistIds) : Promise.resolve({ data: [], error: null }),
       artistIds.length ? supabase.from('artist_payout_accounts').select('artist_id,account_holder_name,bank_account_number_encrypted,bank_account_number_masked,ifsc_code,bank_name,branch_name,upi_id,verified_at').in('artist_id', artistIds) : Promise.resolve({ data: [], error: null }),
       supabase.from('painting_shipping_origins').select('painting_id,pickup_pincode,pickup_location').in('painting_id', paintingIds),
     ]);
@@ -96,6 +96,7 @@ export async function POST(request) {
           artist_name: artist.artist_name,
           creator_role: artist.creator_role || 'Painter',
           is_founding_artist: Boolean(artist.is_founding_artist),
+          commission_rate: Number(artist.commission_rate ?? (artist.is_founding_artist ? 0.20 : 0.25)),
           pickup_pincode: artist.pickup_pincode,
           pickup_location: artist.pickup_location || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary',
           pickup_city: artist.city || '',
@@ -105,6 +106,7 @@ export async function POST(request) {
             artist_name: artist.artist_name,
             creator_role: artist.creator_role || 'Painter',
             is_founding_artist: Boolean(artist.is_founding_artist),
+            commission_rate: Number(artist.commission_rate ?? (artist.is_founding_artist ? 0.20 : 0.25)),
             pickup_contact_name: artist.pickup_contact_name,
             pickup_phone: artist.pickup_phone,
             pickup_address: artist.pickup_address,
@@ -184,7 +186,7 @@ export async function POST(request) {
     const orderItems = enrichedPaintings.map((painting) => {
       const price = money(painting.price);
       const creatorRole = painting.creator_role === 'Photographer' ? 'Photographer' : 'Painter';
-      const commissionRate = painting.is_founding_artist ? 0.20 : 0.30;
+      const commissionRate = Number(painting.commission_rate ?? (painting.is_founding_artist ? 0.20 : 0.25));
       const platformFee = money(price * commissionRate);
       return {
         id: painting.id,

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { isAdminRequest } from '@/lib/admin-auth';
 import { requireServiceRole } from '@/lib/supabase';
+import { getLatestArtistApplication } from '@/lib/artist-approval';
 
 export const runtime = 'nodejs';
 export async function PATCH(request, { params }) {
@@ -9,12 +10,19 @@ export async function PATCH(request, { params }) {
     const { id } = await params;
     const body = await request.json();
     const supabase = requireServiceRole();
-    if (typeof body.is_founding_artist === 'boolean' && body.is_approved === undefined) {
-      const { data: artist, error } = await supabase.from('artists').update({ is_founding_artist: body.is_founding_artist }).eq('id', id).select('*').single();
-      if (error) throw error;
-      return NextResponse.json({ artist });
+    if (Object.prototype.hasOwnProperty.call(body, 'is_founding_artist')) {
+      return NextResponse.json({ error: 'Commission tiers are assigned automatically by the Founding Artist application approval process.' }, { status: 409 });
     }
-    if (typeof body.is_approved !== 'boolean') return NextResponse.json({ error: 'Provide is_approved or is_founding_artist as a boolean.' }, { status: 400 });
+    if (typeof body.is_approved !== 'boolean') return NextResponse.json({ error: 'Provide is_approved as a boolean.' }, { status: 400 });
+    if (body.is_approved) {
+      const { data: existingArtist, error: artistReadError } = await supabase.from('artists').select('id').eq('id', id).maybeSingle();
+      if (artistReadError) throw artistReadError;
+      if (!existingArtist) return NextResponse.json({ error: 'Artist profile not found.' }, { status: 404 });
+      const application = await getLatestArtistApplication(supabase, id);
+      if (application?.status !== 'approved') {
+        return NextResponse.json({ error: 'Approve the Founding Artist application before activating this Artist profile.' }, { status: 409 });
+      }
+    }
     const { data: artist, error } = await supabase.from('artists').update({
       approved: body.is_approved,
       is_approved: body.is_approved,

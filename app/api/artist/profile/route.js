@@ -36,19 +36,25 @@ export async function GET(request) {
     let application = null;
     if (artist) {
       const [{ data: payouts, error: payoutError }, { data: payout, error: payoutAccountError }] = await Promise.all([
-        supabase.from('artist_payouts').select('id,order_id,order_ref,artist_name,creator_role,commission_rate,gross_amount,platform_fee,artist_payout,payout_status,paid_at,delivered_at,payout_available_at,created_at').eq('artist_id', artist.id).order('created_at', { ascending: false }),
+        supabase.from('artist_payouts').select('id,order_id,order_ref,artist_name,creator_role,commission_rate,gross_amount,platform_fee,artist_payout,payout_status,payout_paid_amount,payout_utr,payout_proof_url,paid_at,payout_paid_at,delivered_at,payout_available_at,created_at').eq('artist_id', artist.id).order('created_at', { ascending: false }),
         supabase.from('artist_payout_accounts').select('artist_id,account_holder_name,bank_account_number_masked,ifsc_code,bank_name,branch_name,upi_id,verified_at,updated_at').eq('artist_id', artist.id).maybeSingle(),
       ]);
       if (payoutError) throw payoutError;
       if (payoutAccountError) throw payoutAccountError;
       ledger = payouts || [];
+      for (const row of ledger) {
+        if (row.payout_proof_url) {
+          const { data: signed } = await supabase.storage.from('payout-proofs').createSignedUrl(row.payout_proof_url, 60 * 60);
+          row.payout_proof_signed_url = signed?.signedUrl || '';
+        }
+      }
       payoutAccount = payout || null;
       application = await getLatestArtistApplication(supabase, artist.id);
 
       const profileComplete = Boolean(artist.artist_name && artist.bio && artist.whatsapp_number && artist.email && artist.pickup_address && artist.pickup_phone && artist.pickup_locality && artist.city && artist.state && /^\d{6}$/.test(String(artist.pickup_pincode || '')));
       // Automatically activate complete, IFSC-verified studios. The explicit
       // owner-controlled is_suspended flag always takes precedence.
-      if (profileComplete && !artist.is_suspended && !artist.is_approved) {
+      if (profileComplete && !artist.is_suspended && !artist.is_approved && await isArtistFoundingApproved(supabase, artist)) {
         const { data: activated, error: activateError } = await supabase.from('artists').update({ approved: true, is_approved: true }).eq('id', artist.id).eq('is_suspended', false).select('*').single();
         if (activateError) throw activateError;
         artist = activated;

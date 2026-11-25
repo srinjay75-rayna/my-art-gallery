@@ -1,15 +1,17 @@
 "use client";
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, ArrowUpRight, CheckCircle2, Download, RefreshCw, ShieldCheck, Trash2, UserRound, Wallet, XCircle, FileText } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, CheckCircle2, Download, RefreshCw, ShieldCheck, Trash2, UserRound, Wallet, XCircle, FileText, Plus, Printer, X } from 'lucide-react';
 
 const money = (v) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Number(v || 0));
+const safeAmount = (value) => { const amount = Number(value); return Number.isFinite(amount) && amount > 0 ? amount : 0; };
 const blank = { title: '', medium: '', dimensions: '', price: '', weight_kg: '0.5', length_cm: '', breadth_cm: '', height_cm: '' };
 const tabs = ['Paintings', 'Artists', 'Founding Applications', 'Orders', 'ACCOUNTS & LEDGER'];
 const dash = (v) => v || '—';
 const roleName = (value) => value === 'Photographer' ? 'Photographer' : 'Artist';
-const roleRate = (_value, isFoundingArtist = false) => isFoundingArtist ? 0.20 : 0.30;
+const roleRate = (_value, isFoundingArtist = false) => isFoundingArtist ? 0.20 : 0.25;
 const csv = (value) => `\"${String(value ?? '').replaceAll('\"', '\"\"')}\"`;
+const LEGACY_AGREEMENT_TEXTS = { original_work: 'I confirm that every submitted artwork is 100% original work created by me and that I hold the rights to sell it.', commission_and_payout: 'I agree to the 70% Artist / 30% Platform split, or the 80% Artist / 20% Platform split if I am approved as a Founding Artist, and understand payout is released 48 hours after courier delivery is marked Delivered.', secure_packing: 'I agree to securely pack each sold artwork and make it ready for courier pickup within 48 hours of the order.', promotion_permission: 'I permit Artiste to use approved artwork photos and promotional / behind-the-scenes clips to market my work.' };
 
 function makeAccountsLedger(payouts, orders, artists) {
   const orderMap = new Map(orders.map((order) => [order.id, order]));
@@ -51,7 +53,18 @@ export default function AdminDashboard() {
   const [orders, setOrders] = useState([]);
   const [payouts, setPayouts] = useState([]);
   const [foundingApplications, setFoundingApplications] = useState([]);
+  const [approvedApplications, setApprovedApplications] = useState([]);
+  const [accountingLedgers, setAccountingLedgers] = useState([]);
+  const [accountingEntries, setAccountingEntries] = useState([]);
+  const [payoutModalRow, setPayoutModalRow] = useState(null);
+  const [payoutPayment, setPayoutPayment] = useState({ amount: '', utr: '', proof: null });
+  const [ledgerForm, setLedgerForm] = useState({ ledger_code: '', ledger_name: '', ledger_type: 'asset', description: '' });
+  const [voucherForm, setVoucherForm] = useState({ description: '', reference: '', voucher_date: new Date().toISOString().slice(0, 10), debit_ledger_id: '', credit_ledger_id: '', amount: '' });
+  const [showLedgerCreator, setShowLedgerCreator] = useState(false);
+  const [accountingReport, setAccountingReport] = useState('trial-balance');
   const [form, setForm] = useState(blank);
+  const [hostPricingArtistId, setHostPricingArtistId] = useState('');
+  const [hostPricing, setHostPricing] = useState({ materialCost: '0', hoursWorked: '0', hourlyRate: '0', overheads: '0', profitMarginPct: '20', packingCost: '0' });
   const [photo, setPhoto] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -64,8 +77,11 @@ export default function AdminDashboard() {
     return data;
   };
   const load = useCallback(async () => {
-    const [p, o, fa] = await Promise.all([request('/api/admin/paintings'), request('/api/admin/overview'), request('/api/admin/artist-applications')]);
+    const [p, o, fa, ac] = await Promise.all([request('/api/admin/paintings'), request('/api/admin/overview'), request('/api/admin/artist-applications'), request('/api/owner/accounting').catch(() => ({ ledgers: [], entries: [] }))]);
     setFoundingApplications(fa.applications || []);
+    setApprovedApplications(fa.approvedApplications || []);
+    setAccountingLedgers(ac.ledgers || []);
+    setAccountingEntries(ac.entries || []);
     setPaintings(p.paintings || []);
     setArtists(o.artists || []);
     setOrders(o.orders || []);
@@ -79,7 +95,7 @@ export default function AdminDashboard() {
       try {
         const response = await fetch('/api/admin/artist-applications', { cache: 'no-store' });
         const data = await response.json().catch(() => ({}));
-        if (active && response.ok) setFoundingApplications(data.applications || []);
+        if (active && response.ok) { setFoundingApplications(data.applications || []); setApprovedApplications(data.approvedApplications || []); }
       } catch {}
     };
     const timer = setInterval(refreshPending, 30000);
@@ -87,6 +103,26 @@ export default function AdminDashboard() {
   }, []);
 
   const accountsLedger = makeAccountsLedger(payouts, orders, artists);
+  const foundingSlotsFilled = artists.filter((artist) => Boolean(artist.is_founding_artist)).length;
+  const hostPricingArtist = artists.find((artist) => artist.id === hostPricingArtistId) || null;
+  const hostArtistShare = hostPricingArtist?.is_founding_artist ? 0.80 : 0.75;
+  const hostMargin = Math.min(0.80, safeAmount(hostPricing.profitMarginPct) / 100);
+  const hostBaseCost = safeAmount(hostPricing.materialCost) + safeAmount(hostPricing.hoursWorked) * safeAmount(hostPricing.hourlyRate) + safeAmount(hostPricing.overheads);
+  const hostSuggestedPrice = Math.ceil(((hostBaseCost / Math.max(0.01, 1 - hostMargin)) + safeAmount(hostPricing.packingCost)) / hostArtistShare);
+  const totalGmv = orders.filter((order) => String(order.status || '').toLowerCase() === 'paid').reduce((sum, order) => sum + Number(order.total_amount || order.artwork_price || 0), 0);
+  const pendingArtistPayouts = payouts.reduce((sum, row) => {
+    const alreadyPaid = Number(row.payout_paid_amount || 0) || (['Paid', 'paid'].includes(String(row.payout_status || '')) ? Number(row.artist_payout || 0) : 0);
+    return sum + Math.max(0, Number(row.artist_payout || 0) - alreadyPaid);
+  }, 0);
+  const payoutAlreadyPaid = (row) => Number(row.payout_paid_amount || 0) || (['Paid', 'paid'].includes(String(row.payout_status || '')) ? Number(row.artist_payout || 0) : 0);
+  const payoutRemaining = (row) => Math.max(0, Number(row.artist_payout || 0) - payoutAlreadyPaid(row));
+  const payoutEligible = (row) => Boolean(row?.payout_available_at && new Date(row.payout_available_at).getTime() <= Date.now());
+  const payoutStatusLabel = (row) => {
+    const remaining = payoutRemaining(row);
+    if (remaining <= 0) return 'Paid';
+    if (payoutAlreadyPaid(row) > 0) return `Part-Paid · ${money(remaining)} Pending`;
+    return 'Pending';
+  };
 
   function downloadAccountsCsv() {
     const headers = ['Order ID', 'Date', 'Item Title', 'Creator Name', 'Creator Role', 'Gross Sale INR', 'Courier Cost INR', 'Platform Commission INR', 'Commission Rate', 'Net Creator Payout INR', 'Payout Status'];
@@ -150,6 +186,104 @@ export default function AdminDashboard() {
     finally { setBusy(false); }
   }
 
+  function openPayoutModal(row) {
+    setPayoutModalRow(row);
+    setPayoutPayment({ amount: String(payoutRemaining(row).toFixed(2)), utr: '', proof: null });
+    setError('');
+  }
+
+  async function submitPayoutPayment(event) {
+    event.preventDefault();
+    if (!payoutModalRow) return;
+    if (!payoutEligible(payoutModalRow)) { setError('This payout becomes available 48 hours after the courier confirms delivery.'); return; }
+    if (!payoutPayment.proof) { setError('Attach the mandatory payment proof photo or receipt.'); return; }
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const body = new FormData();
+      body.set('payout_id', payoutModalRow.id);
+      body.set('amount_paid', payoutPayment.amount);
+      body.set('utr', payoutPayment.utr);
+      body.set('proof', payoutPayment.proof);
+      const result = await request('/api/owner/payout-proof', { method: 'POST', body });
+      setNotice(result.message || 'Payment recorded.');
+      setPayoutModalRow(null);
+      setPayoutPayment({ amount: '', utr: '', proof: null });
+      await load();
+    } catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  }
+
+  async function createCustomLedger(event) {
+    event.preventDefault(); setBusy(true); setError(''); setNotice('');
+    try {
+      await request('/api/owner/accounting', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'create_ledger', ...ledgerForm }) });
+      setLedgerForm({ ledger_code: '', ledger_name: '', ledger_type: 'asset', description: '' });
+      setShowLedgerCreator(false); setNotice('Custom ledger created.'); await load();
+    } catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  }
+
+  async function postManualVoucher(event) {
+    event.preventDefault(); setBusy(true); setError(''); setNotice('');
+    try {
+      const amount = Number(voucherForm.amount);
+      if (!voucherForm.debit_ledger_id || !voucherForm.credit_ledger_id || voucherForm.debit_ledger_id === voucherForm.credit_ledger_id || !Number.isFinite(amount) || amount <= 0) throw new Error('Choose two different ledgers and enter a positive amount.');
+      await request('/api/owner/accounting', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'post_voucher', description: voucherForm.description, reference: voucherForm.reference, voucher_date: voucherForm.voucher_date, lines: [ { ledger_id: voucherForm.debit_ledger_id, debit: amount, credit: 0 }, { ledger_id: voucherForm.credit_ledger_id, debit: 0, credit: amount } ] }) });
+      setVoucherForm((current) => ({ ...current, description: '', reference: '', amount: '' })); setNotice('Balanced debit / credit voucher posted.'); await load();
+    } catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  }
+
+  function downloadAccountingCsv() {
+    const headers = ['Date', 'Voucher', 'Reference', 'Ledger Code', 'Ledger Name', 'Type', 'Debit INR', 'Credit INR', 'Description'];
+    const rows = accountingEntries.map((entry) => [entry.voucher?.voucher_date, entry.voucher?.voucher_type, entry.voucher?.reference, entry.ledger?.ledger_code, entry.ledger?.ledger_name, entry.ledger?.ledger_type, entry.debit, entry.credit, entry.description]);
+    const content = [headers, ...rows].map((line) => line.map(csv).join(',')).join('\r\n');
+    const blob = new Blob([`\uFEFF${content}`], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `artiste-accounting-${new Date().toISOString().slice(0, 10)}.csv`; document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
+  }
+
+  function ledgerBalances() {
+    return accountingLedgers.map((ledger) => {
+      const relevant = accountingEntries.filter((entry) => entry.ledger_id === ledger.id);
+      const debit = relevant.reduce((sum, entry) => sum + Number(entry.debit || 0), 0);
+      const credit = relevant.reduce((sum, entry) => sum + Number(entry.credit || 0), 0);
+      const balance = ['asset', 'expense'].includes(ledger.ledger_type) ? debit - credit : credit - debit;
+      return { ...ledger, debit, credit, balance };
+    });
+  }
+
+  function statementNetProfit(balances = ledgerBalances()) {
+    const income = balances.filter((ledger) => ledger.ledger_type === 'income').reduce((sum, ledger) => sum + ledger.balance, 0);
+    const expenses = balances.filter((ledger) => ledger.ledger_type === 'expense').reduce((sum, ledger) => sum + ledger.balance, 0);
+    return income - expenses;
+  }
+
+  function downloadFinancialStatementCsv() {
+    const balances = ledgerBalances();
+    let headers = [];
+    let rows = [];
+    if (accountingReport === 'trial-balance') {
+      headers = ['Ledger Code', 'Ledger Name', 'Account Type', 'Total Debit INR', 'Total Credit INR', 'Closing Balance INR'];
+      rows = balances.map((ledger) => [ledger.ledger_code, ledger.ledger_name, ledger.ledger_type, ledger.debit, ledger.credit, ledger.balance]);
+      rows.push(['TOTAL', '', '', balances.reduce((sum, ledger) => sum + ledger.debit, 0), balances.reduce((sum, ledger) => sum + ledger.credit, 0), '']);
+    } else if (accountingReport === 'profit-loss') {
+      headers = ['Section', 'Ledger Code', 'Ledger Name', 'Amount INR'];
+      rows = balances.filter((ledger) => ['income', 'expense'].includes(ledger.ledger_type)).map((ledger) => [ledger.ledger_type, ledger.ledger_code, ledger.ledger_name, ledger.balance]);
+      rows.push(['Net profit / (loss)', '', '', statementNetProfit(balances)]);
+    } else {
+      headers = ['Section', 'Ledger Code', 'Ledger Name', 'Amount INR'];
+      rows = balances.filter((ledger) => ['asset', 'liability', 'equity'].includes(ledger.ledger_type)).map((ledger) => [ledger.ledger_type, ledger.ledger_code, ledger.ledger_name, ledger.balance]);
+      rows.push(['Equity', '', 'Current earnings', statementNetProfit(balances)]);
+    }
+    const content = [headers, ...rows].map((line) => line.map(csv).join(',')).join('\r\n');
+    const blob = new Blob([`\uFEFF${content}`], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `artiste-${accountingReport}-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url);
+  }
+
   async function reviewFoundingApplication(application, decision) {
     setBusy(true); setError(''); setNotice('');
     try {
@@ -166,6 +300,26 @@ export default function AdminDashboard() {
           <a href="/" className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-full border border-clay/40 font-display text-xl text-clay">A</span><span><b className="block font-display text-2xl">Artiste</b><small className="eyebrow flex items-center gap-1"><ShieldCheck size={11}/> Private studio vault</small></span></a>
           <div className="flex items-center gap-4"><button onClick={logout} className="text-xs font-bold uppercase tracking-wider text-clay">Sign out</button><a href="/" className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-clay"><ArrowLeft size={13}/> View gallery</a></div>
         </header>
+        <section className="mb-8 rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] p-6 shadow-soft md:p-7">
+          <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="eyebrow">Host / Studio Vault Profile</p><h1 className="mt-2 font-display text-3xl">Artiste Host</h1><p className="mt-1 text-xs text-muted">Private owner control centre · Founding artist approvals and studio operations</p></div><span className="rounded-full bg-[#173D31] px-4 py-2 text-xs font-semibold text-white">Order-triggered Shiprocket pickup · Payout release after Delivered + 48 hours</span></div>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="rounded-2xl bg-white/70 p-4"><p className="eyebrow">Founding artist slots</p><p className="mt-2 font-display text-2xl">{Math.min(foundingSlotsFilled, 10)} / 10</p><p className="mt-1 text-xs text-muted">Founding Artist 80/20 spots filled · Next tier: 75/25</p></div>
+            <div className="rounded-2xl bg-white/70 p-4"><p className="eyebrow">Total GMV</p><p className="mt-2 font-display text-2xl">{money(totalGmv)}</p><p className="mt-1 text-xs text-muted">Confirmed paid orders</p></div>
+            <div className="rounded-2xl bg-white/70 p-4"><p className="eyebrow">Pending artist payouts</p><p className="mt-2 font-display text-2xl">{money(pendingArtistPayouts)}</p><p className="mt-1 text-xs text-muted">After recorded full and partial transfers</p></div>
+          </div>
+        </section>
+        <section className="mb-8 rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] p-6 shadow-soft md:p-7">
+          <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="eyebrow">Host-only · private pricing desk</p><h2 className="mt-2 font-display text-2xl">Artwork pricing planner</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-muted">A private copy of the Artist studio pricing planner for Host review. These estimates are not shown in public artwork pages, carts or customer invoices.</p></div><label className="label min-w-[240px]">Preview commission tier<select className="field mt-1" value={hostPricingArtistId} onChange={(event) => setHostPricingArtistId(event.target.value)}><option value="">75/25 · 75% Artist share preview</option>{artists.filter((artist) => artist.is_approved && !artist.is_suspended).map((artist) => <option key={artist.id} value={artist.id}>{artist.artist_name} · {artist.is_founding_artist ? '80/20' : '75/25'}</option>)}</select></label></div>
+          <div className="mt-5 grid gap-x-5 gap-y-4 sm:grid-cols-2 xl:grid-cols-3">
+            <label className="label">Material Costs (₹)<input className="field mt-2" type="number" min="0" step="1" value={hostPricing.materialCost} onChange={(event) => setHostPricing((current) => ({ ...current, materialCost: event.target.value }))}/><small className="mt-1 block text-muted">Canvas, paints, paper, brushes, or framing</small></label>
+            <label className="label">Hours Worked<input className="field mt-2" type="number" min="0" step="0.5" value={hostPricing.hoursWorked} onChange={(event) => setHostPricing((current) => ({ ...current, hoursWorked: event.target.value }))}/></label>
+            <label className="label">Hourly Rate (₹/hr)<input className="field mt-2" type="number" min="0" step="1" value={hostPricing.hourlyRate} onChange={(event) => setHostPricing((current) => ({ ...current, hourlyRate: event.target.value }))}/><small className="mt-1 block text-muted">Guide (with profit margin on top): ₹200–₹350/hr new artists · ₹350–₹650/hr established · ₹650–₹1,200+/hr mature.</small></label>
+            <label className="label">Studio Overheads (₹)<input className="field mt-2" type="number" min="0" step="1" value={hostPricing.overheads} onChange={(event) => setHostPricing((current) => ({ ...current, overheads: event.target.value }))}/><small className="mt-1 block text-muted">Optional: Share of electricity, studio lighting, or workspace upkeep (enter ₹0 if none).</small></label>
+            <label className="label">Profit Margin (%)<input className="field mt-2" type="number" min="0" max="80" step="1" value={hostPricing.profitMarginPct} onChange={(event) => setHostPricing((current) => ({ ...current, profitMarginPct: event.target.value === '' ? '' : String(Math.min(80, Math.max(0, Number(event.target.value) || 0))) }))}/><small className="mt-1 block text-muted">Guide: 12%–18% very new artists · 18%–25% established · 25%–40% mature / high-profile.</small></label>
+            <label className="label">Packing Cost (₹)<input className="field mt-2" type="number" min="0" step="1" value={hostPricing.packingCost} onChange={(event) => setHostPricing((current) => ({ ...current, packingCost: event.target.value }))}/><small className="mt-1 block text-muted">Optional: Enter ₹0 if none, your box/wrap cost if self-packing, or Artiste Packers &amp; Movers fee (100% recovered).</small></label>
+          </div>
+          <div className="mt-5 grid gap-4 md:grid-cols-[1fr_.9fr]"><div className="rounded-2xl border border-[#E6D9C8] bg-white p-5"><p className="eyebrow">Suggested selling price</p><p className="mt-2 font-display text-4xl">{money(hostSuggestedPrice)}</p><button type="button" onClick={() => { setForm((current) => ({ ...current, price: String(hostSuggestedPrice) })); setTab('Paintings'); setNotice('Suggested price applied to the owner artwork listing form.'); }} className="btn-primary mt-4">Apply Suggested Price to Owner Listing</button></div><div className="rounded-2xl bg-[#173D31] p-5 text-[#F5F1E8]"><p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#D0B48C]">PRIVATE PAYOUT PREVIEW</p><p className="mt-3 text-xs text-[#C6D3CA]">Estimated Artist payout · {Math.round(hostArtistShare * 100)}%</p><p className="mt-1 font-display text-3xl">{money(hostSuggestedPrice * hostArtistShare)}</p><div className="mt-4 border-t border-white/15 pt-3"><p className="text-[10px] uppercase tracking-wider text-[#C6D3CA]">Platform commission · {Math.round((1 - hostArtistShare) * 100)}%</p><p className="mt-1 font-display text-xl">{money(hostSuggestedPrice * (1 - hostArtistShare))}</p></div></div></div>
+        </section>
         <div className="mb-7 flex flex-wrap gap-2">
            {tabs.map((t) => <button key={t} onClick={() => setTab(t)} className={`rounded-full px-5 py-2 text-xs font-bold uppercase tracking-wider ${tab === t ? 'bg-ink text-white' : 'border border-[#d9cfc1] text-ink'}`}>{t}{t === 'Founding Applications' && foundingApplications.length > 0 ? ` · ${foundingApplications.length}` : ''}</button>)}
           <button onClick={() => load().catch((e) => setError(e.message))} className="ml-auto inline-flex items-center gap-2 rounded-full border border-[#d9cfc1] px-4 py-2 text-xs"><RefreshCw size={13}/> Refresh</button>
@@ -192,10 +346,10 @@ export default function AdminDashboard() {
           <h2 className="mb-4 font-display text-3xl">Artist applications <span className="text-muted">({artists.length})</span></h2>
           <div className="grid gap-4 md:grid-cols-2">
             {artists.map((a) => <article key={a.id} className="rounded-2xl border border-[#D9C6A6] bg-[#F3ECE1] p-5">
-              <div className="flex gap-4"><img src={a.avatar_url || a.profile_photo_url} alt={a.artist_name} className="h-20 w-20 rounded-full object-cover"/><div className="min-w-0"><h3 className="font-display text-2xl">{a.artist_name}</h3><p className="text-[10px] font-bold uppercase tracking-widest text-clay">{roleName(a.creator_role)} · {a.creator_role === 'Photographer' ? 'Photography Studio' : 'Artist Studio'}</p><p className="text-xs text-muted">{a.city}, {a.state} · {a.is_suspended ? 'Suspended' : a.is_approved ? 'Active' : 'Completing setup'}</p><p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-clay">{a.is_founding_artist ? 'Founding Artist · 80% share' : 'Standard Artist · 70% share'}</p><p className="mt-2 text-sm">{a.bio}</p><p className="mt-2 break-all text-xs text-muted">{a.email}</p></div></div>
+              <div className="flex gap-4"><img src={a.avatar_url || a.profile_photo_url} alt={a.artist_name} className="h-20 w-20 rounded-full object-cover"/><div className="min-w-0"><h3 className="font-display text-2xl">{a.artist_name}</h3><p className="text-[10px] font-bold uppercase tracking-widest text-clay">{roleName(a.creator_role)} · {a.creator_role === 'Photographer' ? 'Photography Studio' : 'Artist Studio'}</p><p className="text-xs text-muted">{a.city}, {a.state} · {a.is_suspended ? 'Suspended' : a.is_approved ? 'Active' : 'Completing setup'}</p><p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-clay">{a.is_founding_artist ? 'Founding Artist · 80% share / 20% commission' : 'Artist · 75% share / 25% commission'}</p><p className="mt-2 text-sm">{a.bio}</p><p className="mt-2 break-all text-xs text-muted">{a.email}</p></div></div>
               <div className="mt-4 rounded-xl bg-[#F3ECE1] p-3 text-xs leading-5"><b>Pickup / dispatch details</b><br/>{dash(a.pickup_contact_name)} · {dash(a.pickup_phone)}<br/>{dash(a.pickup_address)}, {dash(a.pickup_landmark)}, {dash(a.pickup_locality)}, {dash(a.city)}, {dash(a.state)} – {dash(a.pickup_pincode)}<br/>Shiprocket pickup location: {dash(a.pickup_location)}</div>
               <div className="mt-3 rounded-xl border border-[#eee6db] p-3 text-xs leading-5"><b>Verified payout details</b><br/>{a.payout_account?.verified_at ? 'IFSC verified' : 'Not verified'} · {dash(a.payout_account?.account_holder_name)}<br/>A/c {dash(a.payout_account?.bank_account_number || a.payout_account?.bank_account_number_masked)} · {dash(a.payout_account?.ifsc_code)}<br/>{dash(a.payout_account?.bank_name)} · {dash(a.payout_account?.branch_name)}<br/>UPI: {dash(a.payout_account?.upi_id)}</div>
-              <div className="mt-4 flex flex-wrap gap-2"><button disabled={busy} className="action-btn" onClick={() => updateArtist(a, { is_approved: Boolean(a.is_suspended || !a.is_approved) })}>{a.is_suspended ? 'Reactivate Artist' : 'Suspend'}</button><button disabled={busy} className="action-btn" onClick={() => updateArtist(a, { is_founding_artist: !a.is_founding_artist })}>{a.is_founding_artist ? 'Revoke Founding Artist' : 'Grant Founding Artist'}</button><button disabled={busy} className="action-btn danger" onClick={() => deleteArtist(a)}>Delete Artist</button></div>
+              <div className="mt-4 flex flex-wrap gap-2"><button disabled={busy} className="action-btn" onClick={() => updateArtist(a, { is_approved: Boolean(a.is_suspended || !a.is_approved) })}>{a.is_suspended ? 'Reactivate Artist' : 'Suspend'}</button><span className="pill">Tier assigned automatically at approval</span><button disabled={busy} className="action-btn danger" onClick={() => deleteArtist(a)}>Delete Artist</button></div>
             </article>)}
           </div>
           {!artists.length && <p className="rounded-2xl border border-dashed p-10 text-center text-muted">No Artist profiles yet.</p>}
@@ -204,14 +358,20 @@ export default function AdminDashboard() {
 
 
         {tab === 'Founding Applications' && <section>
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-display text-3xl">Founding Artist review queue</h2><p className="mt-1 text-xs text-muted">Pending applications · Approving grants the 80% artist share.</p></div><span className="rounded-full bg-[#173D31] px-4 py-2 text-xs font-bold text-white">{foundingApplications.length} pending</span></div>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-display text-3xl">Founding Artist review queue</h2><p className="mt-1 text-xs text-muted">Pending applications are listed first. Tier assignment and the welcome email run automatically when approved.</p></div><span className="rounded-full bg-[#173D31] px-4 py-2 text-xs font-bold text-white">{foundingApplications.length} pending</span></div>
           <div className="grid gap-4">
             {foundingApplications.map((application) => <article key={application.id} className="rounded-2xl border border-[#D9C6A6] bg-[#F3ECE1] p-5">
               <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-display text-2xl">{application.studio_name}</h3><p className="text-xs text-muted">{application.full_name} · {application.city} – {application.pincode}</p><p className="mt-1 text-xs">{application.whatsapp_number}{application.instagram_handle ? ` · @${application.instagram_handle}` : ''}</p>{application.email && <p className="mt-1 break-all text-xs text-muted">{application.email}</p>}<p className="mt-3 max-w-3xl whitespace-pre-wrap text-sm">{application.art_style_bio}</p></div><span className="pill">{application.application_status}</span></div>
               <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">{(Array.isArray(application.artwork_photos) ? application.artwork_photos : []).map((photo, index) => <a key={`${photo}-${index}`} href={photo} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-[#D9C6A6]"><img src={photo} alt={`Portfolio photo ${index + 1}`} className="h-36 w-full object-cover"/></a>)}</div>
-              <div className="mt-4 flex flex-wrap gap-2"><button disabled={busy} className="btn-primary" onClick={() => reviewFoundingApplication(application, 'approve')}>Approve as Founding Artist (80% Share)</button><button disabled={busy} className="action-btn danger" onClick={() => reviewFoundingApplication(application, 'decline')}>Decline</button></div>
+              <details className="mt-4 rounded-xl border border-[#e8ddcf] bg-white/60 p-3 text-xs"><summary className="cursor-pointer font-semibold">Review the four accepted consent agreements</summary><div className="mt-3 grid gap-2">{['original_work','commission_and_payout','secure_packing','promotion_permission'].map((key) => <p key={key}><b>{key.replaceAll('_', ' ')}:</b> {(application.agreement_texts?.[key] || (application.agreements?.[key] ? LEGACY_AGREEMENT_TEXTS[key] : 'Consent text not recorded'))}</p>)}</div></details>
+              <div className="mt-4 flex flex-wrap gap-2"><button disabled={busy} className="btn-primary" onClick={() => reviewFoundingApplication(application, 'approve')}>Approve · tier assigned automatically</button><button disabled={busy} className="action-btn danger" onClick={() => reviewFoundingApplication(application, 'decline')}>Decline</button></div>
             </article>)}
-            {!foundingApplications.length && <p className="rounded-2xl border border-dashed p-10 text-center text-muted">No pending Founding Artist applications.</p>}
+            {!foundingApplications.length && <p className="rounded-2xl border border-dashed p-7 text-center text-sm text-muted">No pending Founding Artist applications.</p>}
+          </div>
+          <div className="mt-10 border-t border-[#D9C6A6] pt-7">
+            <div className="mb-4 flex flex-wrap items-end justify-between gap-3"><div><h3 className="font-display text-2xl">Approved Applications</h3><p className="mt-1 text-xs text-muted">Permanent approval archive with submitted details, portfolio links, assigned tier, approval timestamp and accepted agreements.</p></div><span className="pill">{approvedApplications.length} approved</span></div>
+            <div className="grid gap-3">{approvedApplications.map((application) => <article key={application.id} className="rounded-2xl border border-[#D9C6A6] bg-[#FAF6F0] p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><h4 className="font-display text-xl">{application.studio_name}</h4><p className="text-xs text-muted">{application.full_name} · {application.email} · {application.whatsapp_number}</p><p className="mt-1 text-xs text-muted">{application.city} – {application.pincode} · {application.instagram_handle ? `@${application.instagram_handle}` : 'Instagram not supplied'}</p><p className="mt-2 text-xs">{application.approval_tier || (Number(application.commission_rate) === 0.2 ? '80/20' : '75/25')} tier · {application.approved_at ? new Date(application.approved_at).toLocaleString('en-IN') : 'Approval timestamp unavailable'}</p></div><a className="action-btn inline-flex items-center gap-2" href={`/api/admin/artist-applications/${application.id}/pdf`}><FileText size={13}/> Download Approval PDF</a></div><details className="mt-3 text-xs"><summary className="cursor-pointer font-semibold">Full submitted details and accepted agreements</summary><div className="mt-2 grid gap-2"><p><b>Bio:</b> {application.art_style_bio}</p><p><b>Portfolio:</b> {(application.artwork_photos || []).join(' · ')}</p>{['original_work','commission_and_payout','secure_packing','promotion_permission'].map((key) => <p key={key}><b>{key.replaceAll('_', ' ')}:</b> {(application.agreement_texts?.[key] || (application.agreements?.[key] ? LEGACY_AGREEMENT_TEXTS[key] : 'Consent text not recorded'))}</p>)}</div></details></article>)}
+            {!approvedApplications.length && <p className="rounded-2xl border border-dashed p-7 text-center text-sm text-muted">Approved applications will be preserved here for the permanent archive.</p>}</div>
           </div>
         </section>}
         {tab === 'Orders' && <section>
@@ -224,7 +384,7 @@ export default function AdminDashboard() {
                   <div><small className="eyebrow">Order reference</small><p className="font-semibold">{o.merchant_order_ref}</p><p className="mt-1 text-xs text-muted">{new Date(o.created_at).toLocaleString('en-IN')}</p>{String(o.status || '').toLowerCase() === 'paid' && <a href={`/invoice/${o.id}`} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-clay underline"><FileText size={12}/> Download / Print Bill</a>}</div>
                   <div><small className="eyebrow">Customer</small><p className="font-semibold">{o.customer_name || o.buyer_name}</p><p className="text-xs">{o.customer_email || o.buyer_email}</p><p className="text-xs">{o.customer_phone || o.buyer_phone}</p></div>
                   <div><small className="eyebrow">Total / Payment</small><p className="font-semibold">{money(o.total_amount ?? o.amount_paise / 100)} · {o.status}</p><p className="text-xs text-muted">Ship: {money(o.shipping_amount ?? o.shipping_price)}</p></div>
-                  <div><small className="eyebrow">Artist / Platform allocation ledger</small><p className="font-semibold">Platform fee: {money(orderPayouts.reduce((sum, row) => sum + Number(row.platform_fee || 0), 0))}</p><p className="text-sm font-semibold text-clay">Creator net payout: {money(orderPayouts.reduce((sum, row) => sum + Number(row.artist_payout || 0), 0))}</p><p className="text-xs text-muted">{orderPayouts.map((row) => `${roleName(row.creator_role)} ${Math.round(Number(row.commission_rate ?? 0.30) * 100)}%`).join(' · ') || 'No creator ledger'} · Payout: {o.payout_status || 'Pending'}</p></div>
+                  <div><small className="eyebrow">Artist / Platform allocation ledger</small><p className="font-semibold">Platform fee: {money(orderPayouts.reduce((sum, row) => sum + Number(row.platform_fee || 0), 0))}</p><p className="text-sm font-semibold text-clay">Creator net payout: {money(orderPayouts.reduce((sum, row) => sum + Number(row.artist_payout || 0), 0))}</p><p className="text-xs text-muted">{orderPayouts.map((row) => `${roleName(row.creator_role)} ${Math.round(Number(row.commission_rate ?? 0.25) * 100)}%`).join(' · ') || 'No creator ledger'} · Payout: {o.payout_status || 'Pending'}</p></div>
                 </div>
                 <div className="grid gap-4 p-4 lg:grid-cols-2">
                   <div className="rounded-xl border border-[#eee6db] p-3 text-xs leading-5"><b className="eyebrow">Customer delivery address</b><p className="mt-2">{dash(o.shipping_address || o.buyer_address)}, {dash(o.landmark)}, {dash(o.locality || o.city || o.buyer_city)}, {dash(o.city)}, {dash(o.state || o.buyer_state)} – {dash(o.pincode || o.buyer_pincode)}</p></div>
@@ -241,28 +401,40 @@ export default function AdminDashboard() {
                     <div className="mt-3 border-t border-[#e6ddd1] pt-3"><b>Verified Artist bank / UPI details</b><p>{dash(s.payout_account?.account_holder_name)} · A/c {dash(s.payout_account?.bank_account_number || s.payout_account?.bank_account_number_masked)}</p><p>{dash(s.payout_account?.bank_name)} · {dash(s.payout_account?.branch_name)} · IFSC {dash(s.payout_account?.ifsc_code)}</p><p>UPI: {dash(s.payout_account?.upi_id)} · {s.payout_account?.verified_at ? 'IFSC verified' : 'Not verified'}</p></div>
                   </div>)}</div> : <p className="rounded-xl border border-dashed p-4 text-xs text-muted">No shipment records are attached to this order yet. Check the payment / fulfilment event log before dispatch.</p>}
                 </div>
-                {orderPayouts.length > 0 && <div className="border-t border-[#eee6db] p-4"><h3 className="mb-3 font-display text-xl">Payout actions for this order</h3><div className="grid gap-2 md:grid-cols-2">{orderPayouts.map((row) => <div key={row.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#eee6db] p-3 text-xs"><div><b>{row.artist_name} · {roleName(row.creator_role)}</b><p>{money(row.gross_amount)} sale · {money(row.platform_fee)} fee ({Math.round(Number(row.commission_rate ?? 0.30) * 100)}%) · {money(row.artist_payout)} net</p><p className="text-muted">{row.payout_status || 'Pending'}</p><p className="text-[10px] text-muted">{row.payout_available_at ? `Eligible ${new Date(row.payout_available_at).toLocaleString('en-IN')}` : 'Awaiting Delivered + 48 hours'}</p></div><button disabled={busy || (row.payout_status !== 'Paid' && (!row.payout_available_at || new Date(row.payout_available_at).getTime() > Date.now()))} className="action-btn" onClick={() => updatePayout(row, row.payout_status === 'Paid' ? 'Pending' : 'Paid')}>{row.payout_status === 'Paid' ? 'Set payout pending' : 'Mark Payout Paid'}</button></div>)}</div></div>}
+                {orderPayouts.length > 0 && <div className="border-t border-[#eee6db] p-4"><h3 className="mb-3 font-display text-xl">Payout actions for this order</h3><div className="grid gap-2 md:grid-cols-2">{orderPayouts.map((row) => <div key={row.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#eee6db] p-3 text-xs"><div><b>{row.artist_name} · {roleName(row.creator_role)}</b><p>{money(row.gross_amount)} sale · {money(row.platform_fee)} fee ({Math.round(Number(row.commission_rate ?? 0.25) * 100)}%) · {money(row.artist_payout)} net</p><p><span className={payoutRemaining(row) <= 0 ? 'inline-flex rounded-full bg-green-100 px-2.5 py-1 font-semibold text-green-800' : payoutAlreadyPaid(row) > 0 ? 'inline-flex rounded-full bg-amber-100 px-2.5 py-1 font-semibold text-amber-900' : 'inline-flex rounded-full bg-[#eee6db] px-2.5 py-1 text-muted'}>{payoutStatusLabel(row)}</span></p><p className="text-[10px] text-muted">Paid: {money(payoutAlreadyPaid(row))} · Remaining: {money(payoutRemaining(row))}</p><p className="text-[10px] text-muted">{row.payout_available_at ? `Available ${new Date(row.payout_available_at).toLocaleString('en-IN')}` : 'Awaiting Delivered + 48 hours'}</p>{row.payout_proof_signed_url && <a className="text-xs font-semibold text-clay underline" href={row.payout_proof_signed_url} target="_blank" rel="noreferrer">View Payment Proof</a>}</div><button disabled={busy || payoutRemaining(row) <= 0} className="action-btn" onClick={() => openPayoutModal(row)}>Mark Payout Paid</button></div>)}</div></div>}
               </article>;
             })}
             {!orders.length && <p className="rounded-2xl border border-dashed p-10 text-center text-muted">Customer orders will appear here after payment confirmation.</p>}
           </div>
           <div className="mt-9"><div className="mb-4 flex flex-wrap items-end justify-between gap-3"><div><h3 className="font-display text-2xl">Complete Artist earnings &amp; payout ledger</h3><p className="mt-1 text-xs text-muted">Payout can be marked Paid only after the courier confirms Delivered, the 48-hour release window has passed, and the transfer has actually been made outside Artiste.</p></div><span className="pill">{payouts.length} Artist ledger entries</span></div>
-            <div className="overflow-x-auto rounded-2xl border border-[#D9C6A6] bg-[#F3ECE1]"><table className="w-full min-w-[900px] text-left text-sm"><thead className="bg-[#f0e9df] text-[10px] uppercase tracking-wider"><tr>{['Order','Creator / role','Sale value','Platform commission','Net creator payout','Payout status','Action'].map((x) => <th className="p-4" key={x}>{x}</th>)}</tr></thead><tbody>{payouts.map((row) => <tr key={row.id} className="border-t border-[#eee6db]"><td className="p-4">{row.order_ref}</td><td className="p-4 font-semibold">{row.artist_name}<small className="block text-[10px] font-normal text-muted">{roleName(row.creator_role)} · {Math.round(Number(row.commission_rate ?? 0.30) * 100)}%</small></td><td className="p-4">{money(row.gross_amount)}</td><td className="p-4">{money(row.platform_fee)}</td><td className="p-4 font-semibold text-clay">{money(row.artist_payout)}</td><td className="p-4">{row.payout_status}<small className="block text-[10px] text-muted">{row.payout_available_at ? `Eligible ${new Date(row.payout_available_at).toLocaleString('en-IN')}` : 'Awaiting Delivered + 48 hours'}</small></td><td className="p-4"><button disabled={busy || (row.payout_status !== 'Paid' && (!row.payout_available_at || new Date(row.payout_available_at).getTime() > Date.now()))} className="action-btn" onClick={() => updatePayout(row, row.payout_status === 'Paid' ? 'Pending' : 'Paid')}>{row.payout_status === 'Paid' ? 'Set pending' : 'Mark Payout Paid'}</button></td></tr>)}</tbody></table>{!payouts.length && <p className="p-8 text-center text-sm text-muted">Artist payout entries appear after paid orders.</p>}</div>
+            <div className="overflow-x-auto rounded-2xl border border-[#D9C6A6] bg-[#F3ECE1]"><table className="w-full min-w-[900px] text-left text-sm"><thead className="bg-[#f0e9df] text-[10px] uppercase tracking-wider"><tr>{['Order','Creator / role','Sale value','Platform commission','Net creator payout','Payout status','Action'].map((x) => <th className="p-4" key={x}>{x}</th>)}</tr></thead><tbody>{payouts.map((row) => <tr key={row.id} className="border-t border-[#eee6db]"><td className="p-4">{row.order_ref}</td><td className="p-4 font-semibold">{row.artist_name}<small className="block text-[10px] font-normal text-muted">{roleName(row.creator_role)} · {Math.round(Number(row.commission_rate ?? 0.25) * 100)}%</small></td><td className="p-4">{money(row.gross_amount)}</td><td className="p-4">{money(row.platform_fee)}</td><td className="p-4 font-semibold text-clay">{money(row.artist_payout)}</td><td className="p-4"><span className={payoutRemaining(row) <= 0 ? 'font-semibold text-green-800' : ''}>{payoutStatusLabel(row)}</span><small className="block text-[10px] text-muted">Paid {money(payoutAlreadyPaid(row))} · Pending {money(payoutRemaining(row))}</small><small className="block text-[10px] text-muted">{row.payout_available_at ? `Available ${new Date(row.payout_available_at).toLocaleString('en-IN')}` : 'Awaiting Delivered + 48 hours'}</small>{row.payout_proof_signed_url && <a className="text-xs font-semibold text-clay underline" href={row.payout_proof_signed_url} target="_blank" rel="noreferrer">View Payment Proof</a>}</td><td className="p-4"><button disabled={busy || payoutRemaining(row) <= 0} className="action-btn" onClick={() => openPayoutModal(row)}>Mark Payout Paid</button></td></tr>)}</tbody></table>{!payouts.length && <p className="p-8 text-center text-sm text-muted">Artist payout entries appear after paid orders.</p>}</div>
           </div>
         </section>}
         {tab === 'ACCOUNTS & LEDGER' && <section>
-          <div className="mb-5 flex flex-wrap items-end justify-between gap-3"><div><p className="eyebrow">Private owner accounting</p><h2 className="mt-2 font-display text-3xl">ACCOUNTS &amp; LEDGER</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-muted">Order-wise creator receivables, Artist / Platform allocation, shipping collected and manual settlement status. Shipping is shown separately and is not included in the commission base.</p></div><button onClick={downloadAccountsCsv} disabled={!accountsLedger.length} className="btn-primary inline-flex items-center gap-2"><Download size={14}/> Export CSV</button></div>
+          <div className="mb-5 flex flex-wrap items-end justify-between gap-3"><div><p className="eyebrow">Private double-entry accounting</p><h2 className="mt-2 font-display text-3xl">ACCOUNTS &amp; LEDGER</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-muted">Balanced journals for paid artwork sales, platform commission, customer shipping recovery, estimated Shiprocket courier charges, artist liabilities and recorded payout transfers.</p></div><div className="flex flex-wrap gap-2"><button onClick={downloadAccountingCsv} disabled={!accountingEntries.length} className="btn-secondary inline-flex items-center gap-2"><Download size={14}/> Ledger CSV</button><button onClick={downloadFinancialStatementCsv} disabled={!accountingLedgers.length} className="btn-secondary inline-flex items-center gap-2"><Download size={14}/> Statement CSV</button><button onClick={() => window.print()} className="btn-secondary inline-flex items-center gap-2"><Printer size={14}/> Print</button></div></div>
           <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {[
-              ['Gross sales', accountsLedger.reduce((sum, row) => sum + Number(row.gross_amount || 0), 0)],
-              ['Courier fulfilment cost', accountsLedger.reduce((sum, row) => sum + Number(row.courier_cost || 0), 0)],
+              ['Gross sales GMV', accountsLedger.reduce((sum, row) => sum + Number(row.gross_amount || 0), 0)],
+              ['Courier fulfilment amount', accountsLedger.reduce((sum, row) => sum + Number(row.courier_cost || 0), 0)],
               ['Platform commission', accountsLedger.reduce((sum, row) => sum + Number(row.platform_fee || 0), 0)],
-              ['Net creator payout payable', accountsLedger.filter((row) => row.payout_status !== 'Paid').reduce((sum, row) => sum + Number(row.artist_payout || 0), 0)],
+              ['Remaining artist payable', accountsLedger.reduce((sum, row) => sum + payoutRemaining(row), 0)],
             ].map(([label, total]) => <div key={label} className="rounded-2xl border border-[#D9C6A6] bg-[#F3ECE1] p-5"><p className="eyebrow">{label}</p><p className="mt-2 font-display text-3xl">{money(total)}</p></div>)}
           </div>
-          <div className="overflow-x-auto rounded-2xl border border-[#D9C6A6] bg-[#F3ECE1]"><table className="w-full min-w-[1350px] text-left text-sm"><thead className="bg-[#f0e9df] text-[10px] uppercase tracking-wider"><tr>{['Order ID','Date','Item title','Creator / role','Gross sale','Courier cost (platform)','Platform commission','Net payout payable','Settlement status','Action'].map((heading) => <th className="p-3" key={heading}>{heading}</th>)}</tr></thead><tbody>{accountsLedger.map((row) => <tr key={row.id} className="border-t border-[#eee6db]"><td className="p-3">{row.order_ref || row.order_id}</td><td className="p-3">{row.order_date ? new Date(row.order_date).toLocaleDateString('en-IN') : '—'}</td><td className="p-3">{row.item_title}</td><td className="p-3"><b>{row.artist_name}</b><small className="block text-[10px] text-muted">{roleName(row.creator_role)}</small></td><td className="p-3">{money(row.gross_amount)}</td><td className="p-3">{money(row.courier_cost)}</td><td className="p-3">{money(row.platform_fee)} <small className="text-muted">({Math.round(row.commission_rate * 100)}%)</small></td><td className="p-3 font-semibold text-clay">{money(row.artist_payout)}</td><td className="p-3">{row.payout_status || 'Pending'}</td><td className="p-3"><button disabled={busy || (row.payout_status !== 'Paid' && (!row.payout_available_at || new Date(row.payout_available_at).getTime() > Date.now()))} className="action-btn" onClick={() => updatePayout(row, row.payout_status === 'Paid' ? 'Pending' : 'Paid')}>{row.payout_status === 'Paid' ? 'Mark Pending' : 'Mark Paid'}</button></td></tr>)}</tbody></table>{!accountsLedger.length && <p className="p-8 text-center text-sm text-muted">Accounting entries will appear after successful paid orders have been allocated to creators.</p>}</div>
-          <p className="mt-3 text-[10px] text-muted">Settlement flags are manual bookkeeping markers only. Artiste does not initiate bank transfers automatically; mark a payout Paid only after it has actually been transferred.</p>
+          <div className="grid gap-6 xl:grid-cols-2">
+            <section className="rounded-2xl border border-[#D9C6A6] bg-[#F3ECE1] p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-display text-2xl">Chart of Accounts</h3><p className="text-xs text-muted">System and custom ledgers</p></div><button className="action-btn inline-flex items-center gap-2" onClick={() => setShowLedgerCreator((value) => !value)}><Plus size={13}/> Create Custom Ledger</button></div>
+              {showLedgerCreator && <form onSubmit={createCustomLedger} className="mt-4 grid gap-3 rounded-xl border border-[#e2d6c7] bg-white/70 p-4 sm:grid-cols-2"><label className="label">Ledger code<input className="field mt-1" required value={ledgerForm.ledger_code} onChange={(e) => setLedgerForm({ ...ledgerForm, ledger_code: e.target.value })}/></label><label className="label">Ledger name<input className="field mt-1" required value={ledgerForm.ledger_name} onChange={(e) => setLedgerForm({ ...ledgerForm, ledger_name: e.target.value })}/></label><label className="label">Account type<select className="field mt-1" value={ledgerForm.ledger_type} onChange={(e) => setLedgerForm({ ...ledgerForm, ledger_type: e.target.value })}>{['asset','liability','equity','income','expense'].map((type) => <option key={type} value={type}>{type[0].toUpperCase()+type.slice(1)}</option>)}</select></label><label className="label">Description<input className="field mt-1" value={ledgerForm.description} onChange={(e) => setLedgerForm({ ...ledgerForm, description: e.target.value })}/></label><button disabled={busy} className="btn-primary sm:col-span-2">Save Custom Ledger</button></form>}
+              <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[460px] text-left text-xs"><thead><tr className="border-b border-[#dfd1bd] text-[10px] uppercase tracking-wider"><th className="p-2">Code</th><th className="p-2">Ledger</th><th className="p-2">Type</th><th className="p-2 text-right">Balance</th></tr></thead><tbody>{ledgerBalances().map((ledger) => <tr key={ledger.id} className="border-b border-[#eee6db]"><td className="p-2">{ledger.ledger_code}</td><td className="p-2 font-semibold">{ledger.ledger_name}</td><td className="p-2 capitalize">{ledger.ledger_type}</td><td className="p-2 text-right">{money(ledger.balance)}</td></tr>)}</tbody></table>{!accountingLedgers.length && <p className="p-4 text-xs text-muted">Run the V17 schema migration to initialise the Chart of Accounts.</p>}</div>
+            </section>
+            <section className="rounded-2xl border border-[#D9C6A6] bg-[#F3ECE1] p-5"><h3 className="font-display text-2xl">Manual Journal Voucher</h3><p className="mt-1 text-xs text-muted">Each voucher posts equal total debit and credit.</p><form onSubmit={postManualVoucher} className="mt-4 grid gap-3"><label className="label">Voucher description<input className="field mt-1" required value={voucherForm.description} onChange={(e) => setVoucherForm({ ...voucherForm, description: e.target.value })}/></label><div className="grid gap-3 sm:grid-cols-2"><label className="label">Date<input type="date" className="field mt-1" required value={voucherForm.voucher_date} onChange={(e) => setVoucherForm({ ...voucherForm, voucher_date: e.target.value })}/></label><label className="label">Reference (optional)<input className="field mt-1" value={voucherForm.reference} onChange={(e) => setVoucherForm({ ...voucherForm, reference: e.target.value })}/></label></div><label className="label">Debit ledger<select className="field mt-1" required value={voucherForm.debit_ledger_id} onChange={(e) => setVoucherForm({ ...voucherForm, debit_ledger_id: e.target.value })}><option value="">Choose debit ledger</option>{accountingLedgers.map((ledger) => <option key={ledger.id} value={ledger.id}>{ledger.ledger_code} · {ledger.ledger_name}</option>)}</select></label><label className="label">Credit ledger<select className="field mt-1" required value={voucherForm.credit_ledger_id} onChange={(e) => setVoucherForm({ ...voucherForm, credit_ledger_id: e.target.value })}><option value="">Choose credit ledger</option>{accountingLedgers.map((ledger) => <option key={ledger.id} value={ledger.id}>{ledger.ledger_code} · {ledger.ledger_name}</option>)}</select></label><label className="label">Amount (₹)<input className="field mt-1" required type="number" min="0.01" step="0.01" value={voucherForm.amount} onChange={(e) => setVoucherForm({ ...voucherForm, amount: e.target.value })}/></label><button disabled={busy || accountingLedgers.length < 2} className="btn-primary">Post Balanced Voucher</button></form></section>
+          </div>
+          <div className="mt-8 rounded-2xl border border-[#D9C6A6] bg-[#F3ECE1] p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-display text-2xl">Financial Statements</h3><p className="text-xs text-muted">Built from posted double-entry ledger movements.</p></div><div className="flex flex-wrap gap-2">{[['trial-balance','Trial Balance'],['profit-loss','Profit & Loss'],['balance-sheet','Balance Sheet']].map(([key,label]) => <button key={key} onClick={() => setAccountingReport(key)} className={`rounded-full px-4 py-2 text-xs font-semibold ${accountingReport === key ? 'bg-ink text-white' : 'border border-[#d9cfc1]'}`}>{label}</button>)}</div></div>
+            {accountingReport === 'trial-balance' && <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[550px] text-left text-sm"><thead><tr className="border-b text-[10px] uppercase"><th className="p-3">Ledger</th><th className="p-3 text-right">Debit</th><th className="p-3 text-right">Credit</th><th className="p-3 text-right">Balance</th></tr></thead><tbody>{ledgerBalances().map((ledger) => <tr key={ledger.id} className="border-b border-[#eee6db]"><td className="p-3">{ledger.ledger_code} · {ledger.ledger_name}</td><td className="p-3 text-right">{money(ledger.debit)}</td><td className="p-3 text-right">{money(ledger.credit)}</td><td className="p-3 text-right">{money(ledger.balance)}</td></tr>)}</tbody></table></div>}
+            {accountingReport === 'profit-loss' && <div className="mt-4 grid gap-5 md:grid-cols-2"><div><h4 className="font-semibold">Income</h4>{ledgerBalances().filter((ledger) => ledger.ledger_type === 'income').map((ledger) => <p key={ledger.id} className="flex justify-between border-b border-[#eee6db] py-2 text-sm"><span>{ledger.ledger_name}</span><b>{money(ledger.balance)}</b></p>)}</div><div><h4 className="font-semibold">Expenses</h4>{ledgerBalances().filter((ledger) => ledger.ledger_type === 'expense').map((ledger) => <p key={ledger.id} className="flex justify-between border-b border-[#eee6db] py-2 text-sm"><span>{ledger.ledger_name}</span><b>{money(ledger.balance)}</b></p>)}</div><p className="font-display text-2xl md:col-span-2">Net Profit / (Loss): {money(ledgerBalances().filter((ledger) => ledger.ledger_type === 'income').reduce((sum, ledger) => sum + ledger.balance, 0) - ledgerBalances().filter((ledger) => ledger.ledger_type === 'expense').reduce((sum, ledger) => sum + ledger.balance, 0))}</p></div>}
+            {accountingReport === 'balance-sheet' && <div className="mt-4 grid gap-5 md:grid-cols-3">{[['Assets','asset'],['Liabilities','liability'],['Equity','equity']].map(([label,type]) => <div key={type}><h4 className="font-semibold">{label}</h4>{ledgerBalances().filter((ledger) => ledger.ledger_type === type).map((ledger) => <p key={ledger.id} className="flex justify-between border-b border-[#eee6db] py-2 text-sm"><span>{ledger.ledger_name}</span><b>{money(ledger.balance)}</b></p>)}{type === 'equity' && <p className="flex justify-between border-b border-[#eee6db] py-2 text-sm"><span>Current earnings</span><b>{money(statementNetProfit())}</b></p>}</div>)}</div>}
+            <div className="mt-6 border-t border-[#dfd1bd] pt-4"><h4 className="font-display text-xl">Journal Entries</h4><div className="mt-2 overflow-x-auto"><table className="w-full min-w-[850px] text-left text-xs"><thead><tr className="border-b text-[10px] uppercase"><th className="p-2">Date</th><th className="p-2">Voucher</th><th className="p-2">Ledger</th><th className="p-2">Description</th><th className="p-2 text-right">Debit</th><th className="p-2 text-right">Credit</th></tr></thead><tbody>{accountingEntries.map((entry) => <tr key={entry.id} className="border-b border-[#eee6db]"><td className="p-2">{entry.voucher?.voucher_date || '—'}</td><td className="p-2">{entry.voucher?.voucher_type || '—'} · {entry.voucher?.reference || '—'}</td><td className="p-2">{entry.ledger?.ledger_code} · {entry.ledger?.ledger_name}</td><td className="p-2">{entry.description}</td><td className="p-2 text-right">{money(entry.debit)}</td><td className="p-2 text-right">{money(entry.credit)}</td></tr>)}</tbody></table>{!accountingEntries.length && <p className="p-5 text-center text-xs text-muted">No accounting entries yet. Paid orders and manual balanced vouchers will post here.</p>}</div></div>
+          </div>
         </section>}
+        {payoutModalRow && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="payout-proof-title"><section className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-3xl border border-[#D9C6A6] bg-[#FAF6F0] p-6 shadow-2xl"><div className="flex items-start justify-between gap-3"><div><p className="eyebrow">Owner payout settlement</p><h2 id="payout-proof-title" className="mt-1 font-display text-2xl">Record payment</h2><p className="mt-1 text-xs text-muted">{payoutModalRow.artist_name} · {payoutModalRow.order_ref}</p></div><button type="button" className="rounded-full p-2 hover:bg-[#eee6db]" onClick={() => setPayoutModalRow(null)} aria-label="Close payout modal"><X size={18}/></button></div><div className="mt-4 rounded-xl bg-white p-4 text-sm"><p className="flex justify-between"><span>Artist share due</span><b>{money(payoutModalRow.artist_payout)}</b></p><p className="mt-1 flex justify-between"><span>Already paid</span><b>{money(payoutAlreadyPaid(payoutModalRow))}</b></p><p className="mt-2 flex justify-between border-t pt-2"><span>Remaining pending</span><b>{money(payoutRemaining(payoutModalRow))}</b></p></div>{!payoutEligible(payoutModalRow) && <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">Payout settlement is locked until 48 hours after delivery is confirmed. {payoutModalRow.payout_available_at ? `Available ${new Date(payoutModalRow.payout_available_at).toLocaleString('en-IN')}.` : 'Waiting for the courier to mark the shipment Delivered.'}</p>}<form onSubmit={submitPayoutPayment} className="mt-5 grid gap-4"><label className="label">Amount Paid (₹)<input className="field mt-1" type="number" required min="0.01" max={payoutRemaining(payoutModalRow)} step="0.01" value={payoutPayment.amount} onChange={(e) => setPayoutPayment({ ...payoutPayment, amount: e.target.value })}/><small className="text-muted">Pre-filled with the remaining due. Enter a smaller amount to record a partial payment.</small></label><label className="label">Transaction Reference / UTR (optional)<input className="field mt-1" value={payoutPayment.utr} maxLength={150} onChange={(e) => setPayoutPayment({ ...payoutPayment, utr: e.target.value })} placeholder="UPI / NEFT transaction reference"/></label><label className="label">Payment Proof Photo / Receipt <span className="text-red-700">(required)</span><input className="mt-2 block w-full text-xs" type="file" required accept="image/jpeg,image/png,image/webp,image/avif,.pdf,application/pdf" onChange={(e) => setPayoutPayment({ ...payoutPayment, proof: e.target.files?.[0] || null })}/><small className="text-muted">JPG, PNG, WEBP, AVIF or PDF · maximum 10 MB</small></label><div className="flex flex-wrap justify-end gap-2"><button type="button" className="btn-secondary" onClick={() => setPayoutModalRow(null)}>Cancel</button><button disabled={busy || !payoutEligible(payoutModalRow) || !payoutPayment.proof || Number(payoutPayment.amount) <= 0 || Number(payoutPayment.amount) > payoutRemaining(payoutModalRow)} className="btn-primary">{busy ? 'Saving payment…' : 'Save Payment + Proof'}</button></div></form></section></div>}
         <p className="mt-12 text-center text-[9px] uppercase tracking-[.2em] text-muted">Artiste · Owner dashboard</p>
       </div>
     </main>

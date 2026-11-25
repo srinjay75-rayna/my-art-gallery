@@ -4,7 +4,7 @@ import { IndianRupee, Sparkles } from 'lucide-react';
 const money = (value) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Number(value || 0));
 export default function EarningsCalculator({ isFoundingArtist = false }) {
   const [price, setPrice] = useState('10000');
-  const artistRate = isFoundingArtist ? 0.80 : 0.70;
+  const artistRate = isFoundingArtist ? 0.80 : 0.75;
   const platformRate = 1 - artistRate;
   const amount = Math.max(0, Number(price) || 0);
   const payout = Math.round(amount * artistRate * 100) / 100;
