@@ -23,6 +23,7 @@ import {
 import EmailOtpAuth from '@/components/EmailOtpAuth';
 import IndianAddressForm from '@/components/IndianAddressForm';
 import FoundingArtistApplication from '@/components/FoundingArtistApplication';
+import { calculatePhotographyGradePrices } from '@/lib/photography-pricing';
 
 const ArtistPrivateEarnings = dynamic(
   () => import('@/components/ArtistPrivateEarnings'),
@@ -64,6 +65,7 @@ const artworkBlank = {
   delivery_format: 'Stretched Canvas (Gallery-Wrapped, Unframed)',
   delivery_format_other: '',
   packing_mode: 'self',
+  artist_fee_grade_1: '',
 };
 
 const payoutBlank = {
@@ -102,6 +104,10 @@ export default function ArtistPage() {
 
   const [artworks, setArtworks] = useState([]);
   const [ledger, setLedger] = useState([]);
+  const [achievements, setAchievements] = useState([]);
+  const [achievementForm, setAchievementForm] = useState({ title: '', year: String(new Date().getFullYear()), description: '' });
+  const [achievementPhotos, setAchievementPhotos] = useState([]);
+  const [achievementBusy, setAchievementBusy] = useState(false);
 
   const [form, setForm] = useState(artworkBlank);
   const [photos, setPhotos] = useState([]);
@@ -192,8 +198,8 @@ export default function ArtistPage() {
     if (!artist) return;
     setForm((current) => current.title || current.medium || current.price
       ? current
-      : { ...current, category: 'Painting' });
-  }, [artist?.id]);
+      : { ...current, category: artist.creator_role === 'Photographer' ? 'Photography' : 'Painting' });
+  }, [artist?.id, artist?.creator_role]);
 
   /* ==========================================
      PRIVATE ARTIST PAYOUT CALCULATIONS
@@ -259,21 +265,21 @@ export default function ArtistPage() {
 
       setForm((current) => current.title || current.medium || current.price
         ? current
-        : { ...current, category: 'Painting' });
+        : { ...current, category: data.artist?.creator_role === 'Photographer' ? 'Photography' : 'Painting' });
 
       const complete = Boolean(
         data.artist?.artist_name &&
         data.artist?.bio &&
-        data.artist?.pickup_address &&
-        data.artist?.pickup_phone &&
         data.artist?.whatsapp_number &&
         data.artist?.email &&
-        data.artist?.pickup_locality &&
         data.artist?.city &&
         data.artist?.state &&
-        /^\d{6}$/.test(
-          String(data.artist?.pickup_pincode || '')
-        )
+        (data.artist?.creator_role === 'Photographer' || (
+          data.artist?.pickup_address &&
+          data.artist?.pickup_phone &&
+          data.artist?.pickup_locality &&
+          /^\d{6}$/.test(String(data.artist?.pickup_pincode || ''))
+        ))
       );
 
       // INCOMPLETE PROFILE: open inline editor instead of redirecting.
@@ -339,6 +345,14 @@ export default function ArtistPage() {
         if (!shouldApply()) return;
 
         setArtworks(paintings.paintings || []);
+        try {
+          const awardData = await api('/api/artist/achievements');
+          if (!shouldApply()) return;
+          setAchievements(awardData.achievements || []);
+        } catch (awardError) {
+          console.error('Artist achievements could not be loaded:', awardError.message);
+          setAchievements([]);
+        }
       }
     } finally {
       if (showInlineLoading && shouldApply()) {
@@ -361,6 +375,7 @@ export default function ArtistPage() {
       setApplication(null);
       setArtworks([]);
       setLedger([]);
+      setAchievements([]);
       setPayoutAccount(null);
       setPayoutForm(payoutBlank);
       setVerifiedIfsc(null);
@@ -565,6 +580,38 @@ export default function ArtistPage() {
     }
   }
 
+  async function addAchievement(event) {
+    event.preventDefault();
+    if (achievementPhotos.length < 1 || achievementPhotos.length > 3) {
+      setError('Upload 1–3 award or exhibition photos.');
+      return;
+    }
+    setAchievementBusy(true); setError(''); setNotice('');
+    try {
+      const body = new FormData();
+      body.append('title', achievementForm.title);
+      body.append('year', achievementForm.year);
+      body.append('description', achievementForm.description);
+      achievementPhotos.forEach((file) => body.append('photos', file));
+      const result = await api('/api/artist/achievements', { method: 'POST', body });
+      setAchievements((current) => [result.achievement, ...current]);
+      setAchievementForm({ title: '', year: String(new Date().getFullYear()), description: '' });
+      setAchievementPhotos([]);
+      setNotice(result.message || 'Achievement added.');
+    } catch (err) { setError(err.message || 'Could not save this achievement.'); }
+    finally { setAchievementBusy(false); }
+  }
+
+  async function removeAchievement(id) {
+    if (!id || achievementBusy) return;
+    setAchievementBusy(true); setError('');
+    try {
+      await api(`/api/artist/achievements?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      setAchievements((current) => current.filter((item) => item.id !== id));
+    } catch (err) { setError(err.message || 'Could not remove this achievement.'); }
+    finally { setAchievementBusy(false); }
+  }
+
   /* ==========================================
      UPLOAD NEW ARTWORK
   ========================================== */
@@ -572,11 +619,13 @@ export default function ArtistPage() {
   async function uploadArtwork(event) {
     event.preventDefault();
 
-    const photoLimit = form.category === 'Photography' ? 2 : 4;
+    const photographerStudio = artist?.creator_role === 'Photographer';
+    const photoLimit = photographerStudio ? 4 : (form.category === 'Photography' ? 2 : 4);
+    const minimumPhotos = photographerStudio ? 3 : 1;
 
-    if (photos.length < 1 || photos.length > photoLimit) {
+    if (photos.length < minimumPhotos || photos.length > photoLimit) {
       setError(
-        `Choose between 1 and ${photoLimit} photos for this ${form.category === 'Photography' ? 'Fine-Art Photography' : 'Original Painting'}.`
+        `Choose between ${minimumPhotos} and ${photoLimit} photos for this ${form.category === 'Photography' ? 'Fine-Art Photography' : 'Original Painting'}.`
       );
       return;
     }
@@ -622,7 +671,7 @@ export default function ArtistPage() {
 
       setForm({
         ...artworkBlank,
-        category: 'Painting',
+        category: artist?.creator_role === 'Photographer' ? 'Photography' : 'Painting',
       });
 
       setPhotos([]);
@@ -845,6 +894,7 @@ export default function ArtistPage() {
       setArtist(null);
       setArtworks([]);
       setLedger([]);
+      setAchievements([]);
       setPayoutAccount(null);
       setPayoutForm(payoutBlank);
       setVerifiedIfsc(null);
@@ -954,7 +1004,7 @@ export default function ArtistPage() {
               <p>✓ Aligned Success (You Earn, We Earn — ₹0 Listing Fees)</p>
               <p>✓ Your Effort &amp; Story Properly Valued</p>
               <p>✓ Instant Collector Trust &amp; Official Certificate of Authenticity</p>
-              <p>✓ Doorstep Courier Pickup Straight From Your Studio</p>
+              <p>{artist?.creator_role === 'Photographer' ? '✓ Archival Print Lab & Shiprocket Fulfilment' : '✓ Doorstep Courier Pickup Straight From Your Studio'}</p>
             </div>
           </div>
         </div>
@@ -1063,7 +1113,31 @@ export default function ArtistPage() {
                           </p>
                         )}
 
-                        <form
+                        {artist?.creator_role === 'Photographer' ? (
+                      <form onSubmit={uploadArtwork} className="mt-5 grid gap-4">
+                        <div className="rounded-2xl border border-[#D9C6A6] bg-white/70 p-4">
+                          <p className="eyebrow">Fine-Art Photography · Simple listing</p>
+                          <p className="mt-1 text-xs leading-5 text-muted">Set your Grade I artist fee once. The other collector grades scale automatically; your full proportional artist fee remains yours.</p>
+                        </div>
+                        <input type="hidden" name="category" value="Photography" />
+                        <label className="label">Photograph Title
+                          <input className="field mt-1" required maxLength={120} value={form.title} onChange={(e) => setForm((current) => ({ ...current, category: 'Photography', title: e.target.value }))} />
+                        </label>
+                        <label className="label">Story / Description
+                          <textarea className="field mt-1 min-h-28" maxLength={3000} required value={form.description} onChange={(e) => setForm((current) => ({ ...current, description: e.target.value }))} placeholder="Share the story, intention and creative process behind this photograph." />
+                        </label>
+                        <label className="label">High-Resolution / Preview Photos
+                          <input id="artist-painting-photo" type="file" accept="image/jpeg,image/png,image/webp,image/avif" multiple required onChange={(e) => setPhotos(Array.from(e.target.files || []).slice(0, 4))} className="mt-2 block w-full text-xs" />
+                          <small className="mt-1 block text-muted">Upload 3–4 JPG, PNG, WEBP or AVIF images · maximum 8 MB each. {photos.length} selected.</small>
+                        </label>
+                        <label className="label">Your Desired Artist Fee for Grade I (12 × 18 in, Edition of 30) in ₹
+                          <input className="field mt-1" type="number" min="1" step="0.01" required value={form.artist_fee_grade_1} onChange={(e) => setForm((current) => ({ ...current, artist_fee_grade_1: e.target.value }))} placeholder="Enter your Grade I artist fee" />
+                        </label>
+                        {form.artist_fee_grade_1 && Number(form.artist_fee_grade_1) > 0 && <div className="rounded-2xl border border-[#D9C6A6] bg-[#FAF6F0] p-4"><p className="eyebrow">Live collector price preview</p><div className="mt-3 grid gap-2">{calculatePhotographyGradePrices(form.artist_fee_grade_1).map((grade) => <div key={grade.grade} className="flex flex-wrap items-center justify-between gap-2 border-b border-[#e9dfd2] pb-2 text-xs"><span><b>{grade.label}</b> · {grade.size} · Edition of {grade.edition}<small className="block text-muted">Artist fee {money(grade.artist_fee)} + print lab &amp; framing {money(grade.lab_cost)}</small></span><b className="text-base text-clay">{money(grade.collector_price)}</b></div>)}</div><p className="mt-2 text-[10px] leading-5 text-muted">Print lab and framing costs are controlled by the Artiste environment settings and can be updated site-wide.</p></div>}
+                        <button disabled={busy || isSuspended} className="btn-primary inline-flex items-center justify-center gap-2">{busy ? 'Publishing…' : isSuspended ? 'Studio suspended' : 'Publish Photography'} <ArrowUpRight size={15} /></button>
+                      </form>
+                    ) : (
+                    <form
                       onSubmit={uploadArtwork}
                       className="mt-5 grid gap-3"
                     >
@@ -1378,6 +1452,7 @@ export default function ArtistPage() {
                       </button>
 
                     </form>
+                    )}
                       </>
                     ) : (
                       <div className="mt-5 rounded-2xl border border-dashed border-[#C9B99F] bg-[#FAF6F0] p-5 text-sm leading-6 text-[#6C5947]">
@@ -1391,6 +1466,18 @@ export default function ArtistPage() {
                   <section className="min-w-0">
                     {foundingAccessApproved ? (
                       <>
+                        <section className="mb-5 rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] p-6 shadow-soft md:p-7">
+                          <p className="eyebrow flex items-center gap-2"><BadgeCheck size={14} /> Artist Recognition</p>
+                          <h2 className="mt-2 font-display text-3xl">Achievements, Awards &amp; Exhibitions</h2>
+                          <p className="mt-2 text-xs leading-5 text-muted">Show collectors the recognition, prizes and exhibitions behind your creative practice. Available to both Painters and Photographers.</p>
+                          <form onSubmit={addAchievement} className="mt-4 grid gap-3">
+                            <label className="label">Award / Exhibition Title<input className="field mt-1" required maxLength={180} value={achievementForm.title} onChange={(e) => setAchievementForm((current) => ({ ...current, title: e.target.value }))} placeholder="e.g. State Akademi Award 2025" /></label>
+                            <div className="grid gap-3 sm:grid-cols-2"><label className="label">Year<input className="field mt-1" type="number" min="1900" max={new Date().getFullYear() + 1} required value={achievementForm.year} onChange={(e) => setAchievementForm((current) => ({ ...current, year: e.target.value }))} /></label><label className="label">Award / Exhibition Photos (1–3)<input className="mt-2 block w-full text-xs" type="file" accept="image/jpeg,image/png,image/webp,image/avif" multiple required onChange={(e) => setAchievementPhotos(Array.from(e.target.files || []).slice(0, 3))} /><small className="text-muted">{achievementPhotos.length} selected · JPG, PNG, WEBP or AVIF · 8 MB max each</small></label></div>
+                            <label className="label">Short Description<textarea className="field mt-1 min-h-20" maxLength={1600} value={achievementForm.description} onChange={(e) => setAchievementForm((current) => ({ ...current, description: e.target.value }))} placeholder="A few lines about the award, recognition or exhibition." /></label>
+                            <button disabled={achievementBusy || isSuspended} className="btn-primary">{achievementBusy ? 'Saving…' : 'Add Achievement'}</button>
+                          </form>
+                          {achievements.length > 0 && <div className="mt-5 grid gap-3">{achievements.map((award) => <article key={award.id} className="rounded-xl border border-[#D9C6A6] bg-white/70 p-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-sm font-semibold">{award.title}</p><p className="text-[10px] uppercase tracking-widest text-clay">{award.achievement_year}</p><p className="mt-1 text-xs leading-5 text-muted">{award.description}</p></div><button type="button" disabled={achievementBusy} onClick={() => removeAchievement(award.id)} className="text-[10px] font-bold uppercase text-red-700 underline">Remove</button></div><div className="mt-2 flex gap-2">{(award.photo_urls || []).map((url, index) => <img key={index} src={url} alt={`${award.title} photo ${index + 1}`} className="h-14 w-14 rounded-lg object-cover" />)}</div></article>)}</div>}
+                        </section>
                         <div className="rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] p-6 shadow-soft md:p-7">
 
                       <p className="eyebrow flex items-center gap-2">
@@ -1675,7 +1762,7 @@ export default function ArtistPage() {
                                   </div>
 
                                   <label className="label">
-                                    Add photos (up to {form.category === 'Photography' ? 2 : 4} total)
+                                    Add photos (up to 4 total)
 
                                     <input
                                       className="mt-1 block w-full text-xs"
@@ -1687,7 +1774,7 @@ export default function ArtistPage() {
                                           0,
                                           Math.max(
                                             0,
-                                            (artist?.creator_role === 'Photographer' ? 2 : 4) -
+                                            4 -
                                             paintingEditGalleryImages.length
                                           )
                                         )
@@ -1696,7 +1783,7 @@ export default function ArtistPage() {
                                   </label>
 
                                   <p className="text-[10px] text-muted">
-                                    {paintingEditGalleryImages.length + paintingEditPhotos.length} photo(s) total after save. Keep at least one photo.
+                                    {paintingEditGalleryImages.length + paintingEditPhotos.length} photo(s) total after save. Photographers should keep 3–4 photos; Painters should keep at least one photo.
                                   </p>
 
                                   <button
@@ -1865,7 +1952,7 @@ export default function ArtistPage() {
                       </h2>
 
                       <p className="mt-1 text-xs leading-5 text-muted">
-                        Your studio pickup address and payout destination are private. Bank details are optional and may be added or edited at any time.
+                        {artist.creator_role === 'Photographer' ? 'Your public profile location and payout destination are private. Photography production and shipping are managed by the Artiste Print Lab.' : 'Your studio pickup address and payout destination are private. Bank details are optional and may be added or edited at any time.'}
                       </p>
                     </div>
 
@@ -1892,33 +1979,22 @@ export default function ArtistPage() {
 
                     <div className="mt-5 grid gap-4 md:grid-cols-2">
 
-                      {/* STUDIO PICKUP DETAILS */}
+                      {/* CREATOR LOCATION / PICKUP DETAILS */}
 
                       <div className="rounded-2xl bg-[#F3ECE1] p-4">
 
                         <div className="flex items-center gap-2 font-semibold">
                           <MapPin size={16} className="text-clay" />
-                          Studio pickup
+                          {artist.creator_role === 'Photographer' ? 'Public profile location' : 'Studio pickup'}
                         </div>
 
-                        <p className="mt-2 text-sm font-semibold">
-                          {artist.creator_role === 'Photographer'
-                            ? 'Photographer'
-                            : 'Artist'}{' '}
-                          · {artist.artist_name}
-                        </p>
+                        <p className="mt-2 text-sm font-semibold">{artist.artist_name}</p>
 
-                        <p className="mt-1 text-xs leading-6 text-muted">
-                          {addressLine || 'Pickup address not saved'}
-                        </p>
-
-                        <p className="mt-1 text-xs text-muted">
-                          {artist.pickup_contact_name} · {artist.pickup_phone}
-                        </p>
-
-                        <p className="mt-1 text-[10px] text-muted">
-                          Shiprocket location: {artist.pickup_location || 'Primary'}
-                        </p>
+                        {artist.creator_role === 'Photographer' ? (
+                          <><p className="mt-1 text-xs leading-6 text-muted">{[artist.city, artist.state].filter(Boolean).join(', ') || 'Location not saved'}</p><p className="mt-1 text-xs text-muted">Print Lab handles production and courier pickup; no creator studio pickup is required.</p></>
+                        ) : (
+                          <><p className="mt-1 text-xs leading-6 text-muted">{addressLine || 'Pickup address not saved'}</p><p className="mt-1 text-xs text-muted">{artist.pickup_contact_name} · {artist.pickup_phone}</p><p className="mt-1 text-[10px] text-muted">Shiprocket location: {artist.pickup_location || 'Primary'}</p></>
+                        )}
 
                       </div>
 
@@ -1970,7 +2046,7 @@ export default function ArtistPage() {
                       >
 
                         <h3 className="font-display text-2xl">
-                          Creator profile &amp; studio pickup
+                          {artist?.creator_role === 'Photographer' ? 'Creator profile & public location' : 'Creator profile & studio pickup'}
                         </h3>
 
                         <div className="mt-4 flex flex-wrap items-center gap-4">
@@ -2100,11 +2176,18 @@ export default function ArtistPage() {
                             />
                           </label>
 
+                          {artist?.creator_role === 'Photographer' && (
+                            <>
+                              <label className="label">City<input className="field mt-1" value={profile.city || ''} onChange={(e) => setProfile({ ...profile, city: e.target.value })} required /></label>
+                              <label className="label">State / UT<input className="field mt-1" value={profile.state || ''} onChange={(e) => setProfile({ ...profile, state: e.target.value })} required /></label>
+                            </>
+                          )}
+
                         </div>
 
-                        {/* PICKUP ADDRESS */}
+                        {/* PAINTER STUDIO PICKUP ADDRESS */}
 
-                        <div className="mt-5 border-t border-[#eee6db] pt-5">
+                        {artist?.creator_role !== 'Photographer' && <div className="mt-5 border-t border-[#eee6db] pt-5">
 
                           <h4 className="font-display text-xl">
                             Artist pickup address
@@ -2149,13 +2232,13 @@ export default function ArtistPage() {
                             />
                           </label>
 
-                        </div>
+                        </div>}
 
                         <button
                           disabled={busy}
                           className="btn-primary mt-5 inline-flex items-center gap-2"
                         >
-                          {busy ? 'Saving studio…' : 'Save Studio Profile'}
+                          {busy ? 'Saving profile…' : 'Save Studio Profile'}
                           <ArrowUpRight size={15} />
                         </button>
 

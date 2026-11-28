@@ -51,7 +51,7 @@ export async function GET(request) {
       payoutAccount = payout || null;
       application = await getLatestArtistApplication(supabase, artist.id);
 
-      const profileComplete = Boolean(artist.artist_name && artist.bio && artist.whatsapp_number && artist.email && artist.pickup_address && artist.pickup_phone && artist.pickup_locality && artist.city && artist.state && /^\d{6}$/.test(String(artist.pickup_pincode || '')));
+      const profileComplete = Boolean(artist.artist_name && artist.bio && artist.whatsapp_number && artist.email && artist.city && artist.state && (creatorRole === 'Photographer' || (artist.pickup_address && artist.pickup_phone && artist.pickup_locality && /^\d{6}$/.test(String(artist.pickup_pincode || '')))));
       // Automatically activate complete, IFSC-verified studios. The explicit
       // owner-controlled is_suspended flag always takes precedence.
       if (profileComplete && !artist.is_suspended && !artist.is_approved && await isArtistFoundingApproved(supabase, artist)) {
@@ -84,15 +84,18 @@ export async function POST(request) {
     const pickupLocality = String(form.get('pickup_locality') || '').trim();
     const pickupPincode = String(form.get('pickup_pincode') || '').trim();
     const pickupLocation = String(form.get('pickup_location') || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary').trim();
+    const photographer = creatorRole === 'Photographer';
     const photo = form.get('photo');
     const whatsappDigits = normaliseIndianPhone(form.get('whatsapp_number'));
-    if (!artistName || artistName.length > 100 || !bio || bio.length > 1200 || !/^\d{10}$/.test(whatsappDigits) || !user.email || !city || !state || !pickupAddress || !pickupContactName || !/^\d{10}$/.test(pickupPhoneDigits) || !pickupLocality || !/^\d{6}$/.test(pickupPincode) || !pickupLocation) {
-      return NextResponse.json({ error: 'Complete your Creator / Studio name, WhatsApp number, verified email, Artist Bio, pickup contact name and mobile number, street address, locality, city, State / UT and valid 6-digit pickup PIN code. Landmark is optional.' }, { status: 400 });
+    const missingCoreProfile = !artistName || artistName.length > 100 || !bio || bio.length > 1200 || !/^\d{10}$/.test(whatsappDigits) || !user.email || !city || !state;
+    const missingPainterPickup = !photographer && (!pickupAddress || !pickupContactName || !/^\d{10}$/.test(pickupPhoneDigits) || !pickupLocality || !/^\d{6}$/.test(pickupPincode) || !pickupLocation);
+    if (missingCoreProfile || missingPainterPickup) {
+      return NextResponse.json({ error: photographer ? 'Complete your Creator name, WhatsApp number, verified email, Artist Bio, city and State / UT.' : 'Complete your Creator / Studio name, WhatsApp number, verified email, Artist Bio, pickup contact name and mobile number, street address, locality, city, State / UT and valid 6-digit pickup PIN code. Landmark is optional.' }, { status: 400 });
     }
     const supabase = requireServiceRole();
-    let { data: existing, error: existingError } = await supabase.from('artists').select('id,profile_photo_url,avatar_url,is_approved,is_suspended,is_founding_artist,creator_role').eq('user_id', user.id).eq('creator_role', creatorRole).maybeSingle();
+    let { data: existing, error: existingError } = await supabase.from('artists').select('id,profile_photo_url,avatar_url,is_approved,is_suspended,is_founding_artist,creator_role,phone,whatsapp_number,instagram_handle,pickup_address,pickup_contact_name,pickup_phone,pickup_landmark,pickup_locality,pickup_pincode,pickup_location,city,state').eq('user_id', user.id).eq('creator_role', creatorRole).maybeSingle();
     if (!existing && creatorRole === 'Painter' && !existingError) {
-      const legacy = await supabase.from('artists').select('id,profile_photo_url,avatar_url,is_approved,is_suspended,is_founding_artist,creator_role').eq('user_id', user.id).is('creator_role', null).maybeSingle();
+      const legacy = await supabase.from('artists').select('id,profile_photo_url,avatar_url,is_approved,is_suspended,is_founding_artist,creator_role,phone,whatsapp_number,instagram_handle,pickup_address,pickup_contact_name,pickup_phone,pickup_landmark,pickup_locality,pickup_pincode,pickup_location,city,state').eq('user_id', user.id).is('creator_role', null).maybeSingle();
       existing = legacy.data || null;
       existingError = legacy.error;
     }
@@ -114,9 +117,9 @@ export async function POST(request) {
     const row = {
       user_id: user.id,
       email: String(user.email || '').toLowerCase(),
-      phone: `+91${pickupPhoneDigits}`,
+      phone: photographer ? (existing?.phone || `+91${whatsappDigits}`) : `+91${pickupPhoneDigits}`,
       whatsapp_number: `+91${whatsappDigits}`,
-      instagram_handle: String(form.get('instagram_handle') || '').trim().replace(/^@/, ''),
+      instagram_handle: form.has('instagram_handle') ? String(form.get('instagram_handle') || '').trim().replace(/^@/, '') : (existing?.instagram_handle || ''),
       artist_name: artistName,
       creator_role: creatorRole,
       bio,
@@ -124,13 +127,16 @@ export async function POST(request) {
       state,
       profile_photo_url: profilePhotoUrl,
       avatar_url: profilePhotoUrl,
-      pickup_address: pickupAddress,
-      pickup_contact_name: pickupContactName,
-      pickup_phone: `+91${pickupPhoneDigits}`,
-      pickup_landmark: pickupLandmark || '',
-      pickup_locality: pickupLocality,
-      pickup_pincode: pickupPincode,
-      pickup_location: pickupLocation,
+      // Photographer fulfilment is handled by the central print lab. Preserve any
+      // historical pickup data without requiring or overwriting it. Painters keep
+      // the original studio-pickup workflow and validation unchanged.
+      pickup_address: photographer ? (existing?.pickup_address || '') : pickupAddress,
+      pickup_contact_name: photographer ? (existing?.pickup_contact_name || '') : pickupContactName,
+      pickup_phone: photographer ? (existing?.pickup_phone || '') : `+91${pickupPhoneDigits}`,
+      pickup_landmark: photographer ? (existing?.pickup_landmark || '') : (pickupLandmark || ''),
+      pickup_locality: photographer ? (existing?.pickup_locality || '') : pickupLocality,
+      pickup_pincode: photographer ? (existing?.pickup_pincode || '') : pickupPincode,
+      pickup_location: photographer ? (existing?.pickup_location || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary') : pickupLocation,
       is_suspended: Boolean(existing?.is_suspended),
       // A complete studio profile activates independently of optional bank details.
       approved: !existing?.is_suspended,

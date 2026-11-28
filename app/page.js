@@ -8,7 +8,7 @@ export default async function HomePage() {
   try {
     const supabase = getPublicServerSupabaseClient();
     let result = await supabase.from('paintings')
-      .select('id,title,medium,dimensions,price,weight_kg,length_cm,breadth_cm,height_cm,image_url,is_sold,artist_id,artist_name,avatar_url,is_approved,category,stock_quantity,edition_details,print_details,gallery_images,framed_status,certificate_id,description,delivery_format,delivery_format_other')
+      .select('id,title,medium,dimensions,price,weight_kg,length_cm,breadth_cm,height_cm,image_url,is_sold,artist_id,artist_name,avatar_url,is_approved,category,stock_quantity,edition_details,print_details,gallery_images,framed_status,certificate_id,description,delivery_format,delivery_format_other,artist_fee_grade_1,print_lab_managed')
       .eq('is_sold', false).gt('stock_quantity', 0).eq('is_approved', true).order('created_at', { ascending: false });
     if (result.error && /stock_quantity|edition_details|print_details|gallery_images|framed_status|certificate_id|description|category|weight_kg|length_cm|breadth_cm|height_cm|delivery_format|delivery_format_other|schema cache|does not exist/i.test(result.error.message || '')) {
       // Keep legacy paintings visible if an optional V9 column migration is still pending.
@@ -52,6 +52,14 @@ export default async function HomePage() {
     if (artistResult.error) throw artistResult.error;
     artists = (artistResult.data || []).map((artist) => ({ ...artist, creator_role: artist.creator_role === 'Photographer' ? 'Photographer' : 'Painter' }));
     const artistMap = new Map(artists.map((artist) => [artist.id, artist]));
+    try {
+      const { data: achievementRows, error: achievementsError } = await supabase.from('artist_achievements').select('id,artist_id,title,achievement_year,description,photo_urls,created_at').in('artist_id', artists.map((artist) => artist.id));
+      if (achievementsError) throw achievementsError;
+      for (const row of achievementRows || []) {
+        const creator = artistMap.get(row.artist_id);
+        if (creator) creator.achievements = [...(creator.achievements || []), { ...row, photo_urls: Array.isArray(row.photo_urls) ? row.photo_urls : [] }];
+      }
+    } catch (achievementError) { console.error('Artist achievement showcase is unavailable:', achievementError.message); }
     paintings = paintings.map((painting) => { const artist = artistMap.get(painting.artist_id); return artist ? { ...painting, artist_name: artist.artist_name, creator_role: artist.creator_role || 'Painter', avatar_url: artist.avatar_url || painting.avatar_url } : painting; });
   } catch (error) { console.error('Artist showcase load failed:', error.message); }
   return <GalleryClient paintings={paintings} artists={artists} galleryError={galleryError} />;

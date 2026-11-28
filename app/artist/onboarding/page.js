@@ -9,7 +9,7 @@ import IndianAddressForm from '@/components/IndianAddressForm';
 
 const emptyAddress = { full_name: '', phone: '', address: '', landmark: '', locality: '', city: '', state: '', pincode: '' };
 const payoutBlank = { account_holder_name: '', bank_account_number: '', confirm_bank_account_number: '', ifsc_code: '', upi_id: '' };
-const completeArtist = (a) => Boolean(a?.artist_name && a?.bio && a?.pickup_address && a?.pickup_phone && a?.pickup_landmark && a?.pickup_locality && a?.city && a?.state && /^\d{6}$/.test(String(a?.pickup_pincode || '')));
+const completeArtist = (a, role) => Boolean(a?.artist_name && a?.bio && a?.whatsapp_number && a?.city && a?.state && (role === 'Photographer' || (a?.pickup_address && a?.pickup_phone && a?.pickup_locality && /^\d{6}$/.test(String(a?.pickup_pincode || '')))));
 
 function readStoredArtistPhone() {
   if (typeof window === 'undefined') return '';
@@ -79,25 +79,26 @@ export default function ArtistOnboardingPage() {
         if (!response.ok) throw new Error(dataResult.error || 'Could not load your Artist profile.');
         const a = dataResult.artist || null;
         setArtist(a);
+        const resolvedRole = (a?.creator_role || metadata.creator_role) === 'Photographer' ? 'Photographer' : 'Painter';
         setArtistName(a?.artist_name || metadata.artist_name || metadata.full_name || '');
-        setCreatorRole((a?.creator_role || metadata.creator_role) === 'Photographer' ? 'Photographer' : 'Painter');
+        setCreatorRole(resolvedRole);
         setBio(a?.bio || '');
         setPickupLocation(a?.pickup_location || 'Primary');
         setAddress({
           ...emptyAddress,
           full_name: a?.pickup_contact_name || a?.artist_name || metadata.artist_name || '',
-          phone: normaliseIndianPhone(a?.pickup_phone || metadata.phone || readStoredArtistPhone()),
+          phone: normaliseIndianPhone(a?.pickup_phone || a?.whatsapp_number || metadata.phone || readStoredArtistPhone()),
           address: a?.pickup_address || '', landmark: a?.pickup_landmark || '', locality: a?.pickup_locality || '',
           city: a?.city || '', state: a?.state || '', pincode: a?.pickup_pincode || '',
         });
-        const initialPhone = normaliseIndianPhone(a?.pickup_phone || metadata.phone || readStoredArtistPhone());
+        const initialPhone = normaliseIndianPhone(a?.pickup_phone || a?.whatsapp_number || metadata.phone || readStoredArtistPhone());
         if (initialPhone) storeArtistPhone(initialPhone);
         if (dataResult.payoutAccount?.verified_at) {
           setPayoutReady(true);
           setPayout((currentPayout) => ({ ...currentPayout, account_holder_name: dataResult.payoutAccount.account_holder_name || '', ifsc_code: dataResult.payoutAccount.ifsc_code || '', upi_id: dataResult.payoutAccount.upi_id || '' }));
           setVerifiedIfsc({ ifsc: dataResult.payoutAccount.ifsc_code, bank_name: dataResult.payoutAccount.bank_name, branch_name: dataResult.payoutAccount.branch_name });
         }
-        if (completeArtist(a)) router.replace('/artist');
+        if (completeArtist(a, resolvedRole)) router.replace('/artist');
       } catch (err) { if (active) setError(err.message || 'Could not load Artist onboarding.'); }
       finally { if (active) setLoading(false); }
     }
@@ -128,7 +129,7 @@ export default function ArtistOnboardingPage() {
       const hasPayoutInput = Boolean(payout.account_holder_name.trim() || payout.bank_account_number.trim() || payout.ifsc_code.trim() || payout.upi_id.trim());
       if (hasPayoutInput && !payoutReady && !verifiedIfsc) throw new Error('To add bank details now, verify your IFSC code first. You may also leave all bank fields blank and add them later.');
       if (hasPayoutInput && !payoutReady && payout.bank_account_number !== payout.confirm_bank_account_number) throw new Error('Bank account number and confirmation do not match.');
-      if (!/^\d{10}$/.test(phoneDigits)) throw new Error('Enter or confirm your 10-digit Indian mobile number for studio pickup.');
+      if (!/^\d{10}$/.test(phoneDigits)) throw new Error(creatorRole === 'Photographer' ? 'Enter or confirm your 10-digit Indian WhatsApp / contact number.' : 'Enter or confirm your 10-digit Indian mobile number for studio pickup.');
 
       const form = new FormData();
       form.set('artist_name', artistName.trim());
@@ -136,6 +137,7 @@ export default function ArtistOnboardingPage() {
       form.set('bio', bio.trim());
       form.set('city', address.city.trim());
       form.set('state', address.state.trim());
+      form.set('whatsapp_number', phoneDigits);
       form.set('pickup_address', address.address.trim());
       form.set('pickup_contact_name', artistName.trim());
       form.set('pickup_phone', phoneDigits);
@@ -170,7 +172,7 @@ export default function ArtistOnboardingPage() {
     <div className="mb-8 flex justify-end"><a href="/artist" className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-clay"><ArrowLeft size={14} /> Creator Portal</a></div>
     <p className="eyebrow flex items-center gap-2"><BadgeCheck size={14} /> Email verified · Step 2 of 2</p>
     <h1 className="mt-3 font-display text-5xl">Set up your <em className="font-normal text-clay">Creator studio.</em></h1>
-    <p className="mt-3 max-w-2xl text-sm leading-7 text-muted">Choose Painter or Photographer, then complete your creator profile and studio pickup details. Bank details are completely optional during sign-up and can be added later in Studio Profile. Once saved, your Creator studio activates automatically and you can publish original work immediately.</p>
+    <p className="mt-3 max-w-2xl text-sm leading-7 text-muted">Choose Painter or Photographer, then complete your creator profile. Painters provide their studio pickup details; Photographer orders are fulfilled directly through the central Artiste Print Lab. Bank details are completely optional during sign-up and can be added later in Studio Profile.</p>
     <div className="mt-6 rounded-2xl border border-[#D9C6A6] bg-[#F3ECE1] p-4 text-sm"><p className="font-semibold">{artistName || 'Artist'} · {session?.user?.email}</p><p className="mt-1 text-xs text-muted">+91 {phoneDigits} · Studio &amp; payout information stays private.</p></div>
     {error && <p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}{notice && <p role="status" className="mt-5 rounded-xl bg-green-50 p-3 text-sm text-green-800">{notice}</p>}
     <form onSubmit={save} className="mt-6 grid gap-6">
@@ -178,14 +180,23 @@ export default function ArtistOnboardingPage() {
         <h2 className="flex items-center gap-2 font-display text-2xl"><UserRoundPlus size={20} className="text-clay" /> Artist Profile</h2>
         <div className="mt-4 grid gap-4"><label className="label">Selected Discipline<input className="field mt-1" value={creatorRole} readOnly/><small className="text-muted">Your discipline was selected at sign-up and is fixed for this studio. You may register another discipline as a separate profile using the same email.</small></label><label className="label">Creator / Studio Name<input className="field mt-1" required minLength={2} maxLength={100} value={artistName} onChange={(e) => setArtistName(e.target.value)} /></label><label className="label">Artist Biography<textarea className="field mt-1 min-h-28" required maxLength={1200} value={bio} onChange={(e) => setBio(e.target.value)} placeholder="Tell collectors about your practice, inspirations and medium." /></label><label className="label flex items-center gap-2">Portfolio / Profile Photo <span className="text-[10px] font-normal text-muted">(optional)</span><input type="file" accept="image/jpeg,image/png,image/webp,image/avif" onChange={(e) => setPhoto(e.target.files?.[0] || null)} className="mt-2 block w-full text-xs" /></label></div>
       </section>
-      <section className="rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] p-6 shadow-soft">
-        <h2 className="flex items-center gap-2 font-display text-2xl"><MapPin size={20} className="text-clay" /> Studio Pickup Address</h2>
-        <p className="mt-2 text-xs leading-6 text-muted">Shiprocket uses this studio address as the shipping origin for your artworks. Keep the registered pickup-location name accurate.</p>
-        <label className="label mt-4 block">+91 Mobile Number for Studio Pickup<div className="mt-1 flex items-center rounded-xl border border-[#D9C6A6] bg-[#FAF6F0] px-3"><span className="mr-2 text-sm text-muted">+91</span><input className="w-full bg-transparent py-3 text-sm outline-none" type="tel" inputMode="numeric" autoComplete="tel-national" required pattern="[0-9]{10}" maxLength={10} value={phoneDigits} onChange={(e) => { const digits = e.target.value.replace(/\D/g, '').slice(-10); setAddress((current) => ({ ...current, phone: digits })); storeArtistPhone(digits); }} placeholder="10-digit mobile number" /></div><span className="mt-1 block text-[10px] font-normal normal-case tracking-normal text-muted">Confirm or enter the mobile number the courier can use for studio pickup.</span></label>
-        <div className="mt-4"><IndianAddressForm value={address} onChange={(patch) => setAddress((current) => ({ ...current, ...patch }))} showContact={false} addressLabel="Studio pickup street address" /></div>
-        <label className="label mt-4 block">Shiprocket registered pickup-location name<input className="field mt-1" required value={pickupLocation} onChange={(e) => setPickupLocation(e.target.value)} placeholder="Exact pickup location name in Shiprocket" /></label>
-        <p className="mt-2 text-[10px] leading-5 text-muted">This name must exactly match a pickup location already configured in your Shiprocket account. Example: ArtistStudio-Kolkata.</p>
-      </section>
+      {creatorRole === 'Photographer' ? (
+        <section className="rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] p-6 shadow-soft">
+          <h2 className="flex items-center gap-2 font-display text-2xl"><MapPin size={20} className="text-clay" /> Public Profile Location</h2>
+          <p className="mt-2 text-xs leading-6 text-muted">Your city and State appear on your public creator profile. Photography orders are produced and dispatched from the central Artiste Print Lab, so no studio pickup address is required.</p>
+          <label className="label mt-4 block">+91 WhatsApp / Contact Mobile<div className="mt-1 flex items-center rounded-xl border border-[#D9C6A6] bg-[#FAF6F0] px-3"><span className="mr-2 text-sm text-muted">+91</span><input className="w-full bg-transparent py-3 text-sm outline-none" type="tel" inputMode="numeric" autoComplete="tel-national" required pattern="[0-9]{10}" maxLength={10} value={phoneDigits} onChange={(e) => { const digits = e.target.value.replace(/\D/g, '').slice(-10); setAddress((current) => ({ ...current, phone: digits })); storeArtistPhone(digits); }} placeholder="10-digit mobile number" /></div></label>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2"><label className="label">City<input className="field mt-1" required value={address.city} onChange={(e) => setAddress((current) => ({ ...current, city: e.target.value }))} /></label><label className="label">State / UT<input className="field mt-1" required value={address.state} onChange={(e) => setAddress((current) => ({ ...current, state: e.target.value }))} /></label></div>
+        </section>
+      ) : (
+        <section className="rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] p-6 shadow-soft">
+          <h2 className="flex items-center gap-2 font-display text-2xl"><MapPin size={20} className="text-clay" /> Studio Pickup Address</h2>
+          <p className="mt-2 text-xs leading-6 text-muted">Shiprocket uses this studio address as the shipping origin for your artworks. Keep the registered pickup-location name accurate.</p>
+          <label className="label mt-4 block">+91 Mobile Number for Studio Pickup<div className="mt-1 flex items-center rounded-xl border border-[#D9C6A6] bg-[#FAF6F0] px-3"><span className="mr-2 text-sm text-muted">+91</span><input className="w-full bg-transparent py-3 text-sm outline-none" type="tel" inputMode="numeric" autoComplete="tel-national" required pattern="[0-9]{10}" maxLength={10} value={phoneDigits} onChange={(e) => { const digits = e.target.value.replace(/\D/g, '').slice(-10); setAddress((current) => ({ ...current, phone: digits })); storeArtistPhone(digits); }} placeholder="10-digit mobile number" /></div><span className="mt-1 block text-[10px] font-normal normal-case tracking-normal text-muted">Confirm or enter the mobile number the courier can use for studio pickup.</span></label>
+          <div className="mt-4"><IndianAddressForm value={address} onChange={(patch) => setAddress((current) => ({ ...current, ...patch }))} showContact={false} addressLabel="Studio pickup street address" /></div>
+          <label className="label mt-4 block">Shiprocket registered pickup-location name<input className="field mt-1" required value={pickupLocation} onChange={(e) => setPickupLocation(e.target.value)} placeholder="Exact pickup location name in Shiprocket" /></label>
+          <p className="mt-2 text-[10px] leading-5 text-muted">This name must exactly match a pickup location already configured in your Shiprocket account. Example: ArtistStudio-Kolkata.</p>
+        </section>
+      )}
       <section className="rounded-3xl border border-[#D9C6A6] bg-[#F3ECE1] p-6 shadow-soft">
         <h2 className="flex items-center gap-2 font-display text-2xl"><Landmark size={20} className="text-clay" /> Verified Payout Details</h2>
         {payoutReady ? <div className="mt-4 flex items-start gap-3 rounded-2xl bg-green-50 p-4 text-sm text-green-900"><CheckCircle2 size={18} className="mt-0.5 shrink-0" /><div><b>Your payout account is already verified.</b><p className="mt-1 text-xs leading-5">{payout.account_holder_name} · {payout.ifsc_code} · {verifiedIfsc?.bank_name} / {verifiedIfsc?.branch_name}</p></div></div> : <>
@@ -201,7 +212,7 @@ export default function ArtistOnboardingPage() {
         </>}
       </section>
       <button disabled={busy} className="btn-primary flex items-center justify-center gap-2">{busy ? 'Saving your Artist profile…' : 'Save profile & continue to Creator Portal'} <ArrowUpRight size={15} /></button>
-      <p className="text-center text-[10px] leading-5 text-muted">Your Creator studio activates automatically after your profile and verified payout details are saved. Your payout and pickup information remains private.</p>
+      <p className="text-center text-[10px] leading-5 text-muted">Your Creator studio activates after your profile is saved. Painter pickup details remain private; Photographer orders are fulfilled through the Artiste Print Lab.</p>
     </form>
   </div></main>;
 }

@@ -5,6 +5,7 @@ import { getCourierRatesByPickup, groupPaintingsByPickup } from '@/lib/shiprocke
 import { getUserFromRequest } from '@/lib/auth-server';
 import { normaliseIndianPhone } from '@/lib/india-address';
 import { calculatePartnerPackingCharge } from '@/lib/packing';
+import { calculatePhotographyGradePrices, getPrintLabCosts, photographyGrade } from '@/lib/photography-pricing';
 
 export const runtime = 'nodejs';
 const money = (value) => Math.round(Number(value || 0) * 100) / 100;
@@ -44,6 +45,7 @@ export async function POST(request) {
     const requestedItems = Array.isArray(body.items) ? body.items : [{ paintingId: body.paintingId || '' }];
     const ids = [...new Set(requestedItems.map((item) => String(item.paintingId || item.id || '').trim()))];
     const archivalPrintById = new Map(requestedItems.map((item) => [String(item.paintingId || item.id || '').trim(), Boolean(item.archival_print_requested)]));
+    const photographyGradeById = new Map(requestedItems.map((item) => [String(item.paintingId || item.id || '').trim(), Number(item.edition_grade || 1)]));
     if (!ids.length || ids.length > 20 || ids.some((id) => !/^[0-9a-f-]{20,40}$/i.test(id))) {
       return NextResponse.json({ error: 'Your cart is empty or contains an invalid artwork.' }, { status: 400 });
     }
@@ -52,7 +54,7 @@ export async function POST(request) {
     const [{ data: profile, error: profileError }, { data: paintings, error: paintingError }] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
       supabase.from('paintings')
-        .select('id,title,medium,dimensions,price,weight_kg,length_cm,breadth_cm,height_cm,image_url,is_sold,is_approved,stock_quantity,artist_id,artist_name,category,edition_details,print_details,description,framed_status,certificate_id,gallery_images,delivery_format,delivery_format_other,packing_mode')
+        .select('id,title,medium,dimensions,price,weight_kg,length_cm,breadth_cm,height_cm,image_url,is_sold,is_approved,stock_quantity,artist_id,artist_name,category,edition_details,print_details,description,framed_status,certificate_id,gallery_images,delivery_format,delivery_format_other,packing_mode,artist_fee_grade_1,print_lab_managed')
         .in('id', ids).eq('is_sold', false).gt('stock_quantity', 0).eq('is_approved', true),
     ]);
     if (profileError) throw profileError;
@@ -89,43 +91,51 @@ export async function POST(request) {
     const enrichedPaintings = paintings.map((painting) => {
       if (painting.artist_id) {
         const artist = artistMap.get(painting.artist_id);
-        if (!artist || !artist.is_approved) throw new Error(`The Artist profile for “${painting.title}” is not currently approved.`);
+        if (!artist || !artist.is_approved) throw new Error(`The Artist “${painting.title}” is not currently approved.`);
         const payout = payoutMap.get(painting.artist_id) || null;
+        const isPhotographer = artist.creator_role === 'Photographer' && painting.category === 'Photography';
+        if (isPhotographer) {
+          if (!payout?.verified_at) throw new Error(`The Photographer “${artist.artist_name}” must complete verified payout details before checkout.`);
+          const grade = photographyGrade(photographyGradeById.get(String(painting.id)));
+          const pricing = calculatePhotographyGradePrices(painting.artist_fee_grade_1, getPrintLabCosts()).find((row) => row.grade === grade.grade);
+          if (!pricing) throw new Error(`The Photographer “${artist.artist_name}” has not set a valid Grade I artist fee for “${painting.title}”.`);
+          const printPin = String(process.env.PRINT_LAB_PICKUP_PIN || '').trim();
+          if (!/^\d{6}$/.test(printPin)) throw new Error('PRINT_LAB_PICKUP_PIN must be configured as a valid 6-digit PIN code before photography checkout can continue.');
+          return {
+            ...painting, price: pricing.collector_price, weight_kg: grade.package.weight,
+            length_cm: grade.package.length_cm, breadth_cm: grade.package.breadth_cm, height_cm: grade.package.height_cm,
+            artist_name: artist.artist_name, creator_role: 'Photographer', is_founding_artist: false,
+            commission_rate: 0, print_lab_managed: true, packing_mode: 'self', photographyPricing: pricing, selectedPhotographyGrade: grade,
+            pickup_pincode: printPin, pickup_location: process.env.PRINT_LAB_PICKUP_LOCATION || 'Primary',
+            pickup_city: process.env.PRINT_LAB_PICKUP_CITY || '', pickup_state: process.env.PRINT_LAB_PICKUP_STATE || '',
+            dispatchSnapshot: {
+              dispatch_type: 'print_lab', artist_id: null, artist_name: 'Artiste Print Lab', creator_role: 'Photographer',
+              pickup_contact_name: process.env.PRINT_LAB_PICKUP_CONTACT || 'Artiste Print Lab',
+              pickup_phone: process.env.PRINT_LAB_PICKUP_PHONE || '', pickup_address: process.env.PRINT_LAB_PICKUP_ADDRESS || '',
+              pickup_landmark: process.env.PRINT_LAB_PICKUP_LANDMARK || '', pickup_locality: process.env.PRINT_LAB_PICKUP_LOCALITY || '',
+              pickup_city: process.env.PRINT_LAB_PICKUP_CITY || '', pickup_state: process.env.PRINT_LAB_PICKUP_STATE || '',
+              pickup_pincode: printPin, pickup_location: process.env.PRINT_LAB_PICKUP_LOCATION || 'Primary', payout_info: {},
+            },
+          };
+        }
         if (!/^\d{6}$/.test(String(artist.pickup_pincode || ''))) throw new Error(`The Artist “${artist.artist_name}” has not completed a valid pickup PIN code.`);
+        const commissionRate = Number(artist.commission_rate ?? (artist.is_founding_artist ? 0.20 : 0.25));
         return {
-          ...painting,
-          artist_name: artist.artist_name,
-          creator_role: artist.creator_role || 'Painter',
-          is_founding_artist: Boolean(artist.is_founding_artist),
-          commission_rate: Number(artist.commission_rate ?? (artist.is_founding_artist ? 0.20 : 0.25)),
-          pickup_pincode: artist.pickup_pincode,
-          pickup_location: artist.pickup_location || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary',
-          pickup_city: artist.city || '',
-          pickup_state: artist.state || '',
+          ...painting, artist_name: artist.artist_name, creator_role: artist.creator_role || 'Painter',
+          is_founding_artist: Boolean(artist.is_founding_artist), commission_rate: commissionRate,
+          pickup_pincode: artist.pickup_pincode, pickup_location: artist.pickup_location || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary',
+          pickup_city: artist.city || '', pickup_state: artist.state || '',
           dispatchSnapshot: {
-            artist_id: artist.id,
-            artist_name: artist.artist_name,
-            creator_role: artist.creator_role || 'Painter',
-            is_founding_artist: Boolean(artist.is_founding_artist),
-            commission_rate: Number(artist.commission_rate ?? (artist.is_founding_artist ? 0.20 : 0.25)),
-            pickup_contact_name: artist.pickup_contact_name,
-            pickup_phone: artist.pickup_phone,
-            pickup_address: artist.pickup_address,
-            pickup_landmark: artist.pickup_landmark,
-            pickup_locality: artist.pickup_locality,
-            pickup_city: artist.city,
-            pickup_state: artist.state,
-            pickup_pincode: artist.pickup_pincode,
-            pickup_location: artist.pickup_location || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary',
+            artist_id: artist.id, artist_name: artist.artist_name, creator_role: artist.creator_role || 'Painter',
+            is_founding_artist: Boolean(artist.is_founding_artist), commission_rate: commissionRate,
+            pickup_contact_name: artist.pickup_contact_name, pickup_phone: artist.pickup_phone,
+            pickup_address: artist.pickup_address, pickup_landmark: artist.pickup_landmark,
+            pickup_locality: artist.pickup_locality, pickup_city: artist.city, pickup_state: artist.state,
+            pickup_pincode: artist.pickup_pincode, pickup_location: artist.pickup_location || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary',
             payout_info: payout?.verified_at ? {
-              account_holder_name: payout.account_holder_name,
-              bank_account_number_encrypted: payout.bank_account_number_encrypted,
-              bank_account_number_masked: payout.bank_account_number_masked,
-              ifsc_code: payout.ifsc_code,
-              bank_name: payout.bank_name,
-              branch_name: payout.branch_name,
-              upi_id: payout.upi_id,
-              verified_at: payout.verified_at,
+              account_holder_name: payout.account_holder_name, bank_account_number_encrypted: payout.bank_account_number_encrypted,
+              bank_account_number_masked: payout.bank_account_number_masked, ifsc_code: payout.ifsc_code, bank_name: payout.bank_name,
+              branch_name: payout.branch_name, upi_id: payout.upi_id, verified_at: payout.verified_at,
             } : {},
           },
         };
@@ -136,9 +146,8 @@ export async function POST(request) {
       if (!/^\d{6}$/.test(String(pickupPincode))) throw new Error(`No valid pickup PIN code is configured for “${painting.title}”.`);
       return { ...painting, creator_role: 'Painter', artist_name: painting.artist_name || 'Artiste Studio', pickup_pincode: pickupPincode, pickup_location: pickupLocation, dispatchSnapshot: { artist_id: null, artist_name: 'Artiste Studio', pickup_contact_name: 'Artiste Studio', pickup_phone: process.env.PICKUP_PHONE || '', pickup_address: process.env.PICKUP_ADDRESS || '', pickup_landmark: '', pickup_locality: process.env.PICKUP_LOCALITY || '', pickup_city: process.env.PICKUP_CITY || '', pickup_state: process.env.PICKUP_STATE || '', pickup_pincode: pickupPincode, pickup_location: pickupLocation, payout_info: null } };
     });
-
     for (const painting of enrichedPaintings) {
-      painting.partner_packing_amount = calculatePartnerPackingCharge(painting);
+      painting.partner_packing_amount = painting.print_lab_managed ? 0 : calculatePartnerPackingCharge(painting);
     }
 
     const groups = groupPaintingsByPickup(enrichedPaintings);
@@ -164,6 +173,7 @@ export async function POST(request) {
         group_index: group.groupIndex,
         artist_id: group.artist_id,
         artist_name: group.artist_name,
+        dispatch_type: group.print_lab_managed ? 'print_lab' : 'artist',
         pickup_contact_name: snapshot.pickup_contact_name || '',
         pickup_phone: snapshot.pickup_phone || '',
         pickup_address: snapshot.pickup_address || '',
@@ -174,7 +184,24 @@ export async function POST(request) {
         pickup_pincode: group.pickupPincode,
         pickup_location: group.pickupLocation,
         payout_info: snapshot.payout_info || {},
-        items: group.items.map((item) => ({ id: item.id, title: item.title, price: money(item.price), weight_kg: Number(item.weight_kg), length_cm: Number(item.length_cm), breadth_cm: Number(item.breadth_cm), height_cm: Number(item.height_cm), delivery_format: item.delivery_format || 'Stretched Canvas (Gallery-Wrapped, Unframed)', delivery_format_other: item.delivery_format_other || '', packing_mode: item.packing_mode || 'self', partner_packing_amount: money(item.partner_packing_amount) })),
+        items: group.items.map((item) => ({
+          id: item.id, title: item.title, category: item.category || 'Painting',
+          artist_id: item.artist_id || null, artist_name: item.artist_name || 'Artiste Studio',
+          creator_role: item.creator_role || 'Painter', image_url: item.image_url || '',
+          high_res_image_url: (Array.isArray(item.gallery_images) && item.gallery_images[0]) || item.image_url || '',
+          dimensions: item.dimensions || '', weight_kg: Number(item.weight_kg || 0),
+          length_cm: Number(item.length_cm || 0), breadth_cm: Number(item.breadth_cm || 0), height_cm: Number(item.height_cm || 0),
+          edition_grade: item.selectedPhotographyGrade?.grade || null,
+          edition_grade_name: item.selectedPhotographyGrade?.name || '', edition_size: item.selectedPhotographyGrade?.size || '',
+          edition_limit: item.selectedPhotographyGrade?.edition || null,
+          substrate_specs: item.selectedPhotographyGrade?.substrate || '',
+          framing_specs: item.selectedPhotographyGrade?.substrate || '',
+          photography_artist_fee: item.photographyPricing?.artist_fee || null,
+          print_lab_managed: Boolean(item.print_lab_managed),
+          delivery_format: item.delivery_format || '', delivery_format_other: item.delivery_format_other || '',
+          packing_mode: item.print_lab_managed ? 'print_lab' : (item.packing_mode || 'self'),
+          partner_packing_amount: money(item.partner_packing_amount), price: money(item.price),
+        })),
         partner_packing_amount: money(group.items.reduce((sum, item) => sum + Number(item.partner_packing_amount || 0), 0)),
         package_weight_kg: group.package.weight,
         package_length_cm: group.package.length_cm,
@@ -192,8 +219,9 @@ export async function POST(request) {
     const orderItems = enrichedPaintings.map((painting) => {
       const price = money(painting.price);
       const creatorRole = painting.creator_role === 'Photographer' ? 'Photographer' : 'Painter';
-      const commissionRate = Number(painting.commission_rate ?? (painting.is_founding_artist ? 0.20 : 0.25));
-      const platformFee = money(price * commissionRate);
+      const isPhotographerPrint = painting.creator_role === 'Photographer' && painting.print_lab_managed && painting.photographyPricing;
+      const commissionRate = isPhotographerPrint ? 0 : Number(painting.commission_rate ?? (painting.is_founding_artist ? 0.20 : 0.25));
+      const platformFee = isPhotographerPrint ? 0 : money(price * commissionRate);
       return {
         id: painting.id,
         title: painting.title,
@@ -206,14 +234,27 @@ export async function POST(request) {
         framed_status: painting.framed_status || 'Unframed',
         delivery_format: painting.delivery_format || 'Stretched Canvas (Gallery-Wrapped, Unframed)',
         delivery_format_other: painting.delivery_format_other || '',
-        packing_mode: painting.packing_mode || 'self',
+        packing_mode: isPhotographerPrint ? 'print_lab' : (painting.packing_mode || 'self'),
         partner_packing_amount: money(painting.partner_packing_amount),
         pickup_snapshot: { pickup_contact_name: painting.dispatchSnapshot?.pickup_contact_name || painting.artist_name || 'Artiste Studio', artist_name: painting.artist_name || 'Artiste Studio', pickup_phone: painting.dispatchSnapshot?.pickup_phone || '', pickup_address: painting.dispatchSnapshot?.pickup_address || '', pickup_landmark: painting.dispatchSnapshot?.pickup_landmark || '', pickup_locality: painting.dispatchSnapshot?.pickup_locality || '', pickup_city: painting.dispatchSnapshot?.pickup_city || '', pickup_state: painting.dispatchSnapshot?.pickup_state || '', pickup_pincode: painting.pickup_pincode },
         certificate_id: painting.certificate_id || '',
         price,
         platform_fee: platformFee,
-        artist_payout: money(price - platformFee),
+        artist_payout: isPhotographerPrint ? money(painting.photographyPricing.artist_fee) : money(price - platformFee),
+        photography_artist_fee: isPhotographerPrint ? money(painting.photographyPricing.artist_fee) : null,
+        photography_lab_cost: isPhotographerPrint ? money(painting.photographyPricing.lab_cost) : null,
+        edition_grade: isPhotographerPrint ? painting.selectedPhotographyGrade.grade : null,
+        edition_grade_name: isPhotographerPrint ? painting.selectedPhotographyGrade.name : '',
+        edition_size: isPhotographerPrint ? painting.selectedPhotographyGrade.size : '',
+        edition_limit: isPhotographerPrint ? painting.selectedPhotographyGrade.edition : null,
+        edition_number: null,
+        substrate_specs: isPhotographerPrint ? painting.selectedPhotographyGrade.substrate : '',
+        framing_specs: isPhotographerPrint ? painting.selectedPhotographyGrade.substrate : '',
+        print_lab_managed: Boolean(isPhotographerPrint),
         image_url: painting.image_url,
+        high_res_image_url: (Array.isArray(painting.gallery_images) && painting.gallery_images[0]) || painting.image_url || '',
+        photography_grade_one_artist_fee: isPhotographerPrint ? money(painting.artist_fee_grade_1) : null,
+        print_lab_pickup_pincode: isPhotographerPrint ? String(process.env.PRINT_LAB_PICKUP_PIN || '') : '',
         artist_id: painting.artist_id,
         artist_name: painting.artist_name || 'Artiste Studio',
         creator_role: creatorRole,

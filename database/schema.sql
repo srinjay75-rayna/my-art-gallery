@@ -445,6 +445,7 @@ alter table public.order_shipments add column if not exists pickup_city text not
 alter table public.order_shipments add column if not exists pickup_state text not null default '';
 alter table public.order_shipments add column if not exists pickup_pincode text not null default '';
 alter table public.order_shipments add column if not exists pickup_location text not null default 'Primary';
+alter table public.order_shipments add column if not exists dispatch_type text not null default 'artist';
 alter table public.order_shipments add column if not exists payout_info jsonb not null default '{}'::jsonb;
 alter table public.order_shipments add column if not exists items jsonb not null default '[]'::jsonb;
 alter table public.order_shipments add column if not exists package_weight_kg numeric(9,3) not null default 0;
@@ -1619,3 +1620,216 @@ create index if not exists packer_dispatches_created_idx on public.packer_dispat
 alter table public.packer_dispatches enable row level security;
 revoke all on public.packer_dispatches from public, anon, authenticated;
 grant all on public.packer_dispatches to service_role;
+
+-- =============================================================================
+-- Version 20: Fine-Art Photography editions, achievement showcase, creative
+-- entries and private print-lab / concierge records. Entirely additive migration.
+-- =============================================================================
+alter table public.paintings add column if not exists artist_fee_grade_1 numeric(12,2);
+alter table public.paintings add column if not exists print_lab_managed boolean not null default false;
+insert into public.accounting_ledgers (ledger_code, ledger_name, ledger_type, description, is_system)
+values ('2030', 'Print Lab Payable', 'liability', 'Fine-Art Photography production, archival substrate and framing amounts collected and payable to the Print Lab', true)
+on conflict (ledger_code) do update set ledger_name = excluded.ledger_name, ledger_type = excluded.ledger_type, description = excluded.description, is_system = true;
+
+create table if not exists public.photography_editions (
+  id uuid primary key default gen_random_uuid(),
+  painting_id uuid not null references public.paintings(id) on delete cascade,
+  grade integer not null check (grade between 1 and 4),
+  edition_limit integer not null check (edition_limit > 0),
+  sold_count integer not null default 0 check (sold_count >= 0 and sold_count <= edition_limit),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(painting_id, grade)
+);
+create index if not exists photography_editions_painting_idx on public.photography_editions(painting_id, grade);
+insert into public.photography_editions(painting_id, grade, edition_limit)
+select p.id, grade.grade, grade.edition_limit
+from public.paintings p
+cross join (values (1,30),(2,20),(3,10),(4,5)) as grade(grade, edition_limit)
+where p.category = 'Photography'
+on conflict (painting_id, grade) do nothing;
+alter table public.photography_editions enable row level security;
+drop policy if exists photography_editions_public_read on public.photography_editions;
+create policy photography_editions_public_read on public.photography_editions for select to anon, authenticated using (true);
+revoke insert, update, delete on public.photography_editions from anon, authenticated;
+grant select on public.photography_editions to anon, authenticated;
+grant all on public.photography_editions to service_role;
+
+create table if not exists public.artist_achievements (
+  id uuid primary key default gen_random_uuid(),
+  artist_id uuid not null references public.artists(id) on delete cascade,
+  title text not null check (char_length(title) between 2 and 180),
+  achievement_year integer not null check (achievement_year between 1900 and 2200),
+  description text not null default '' check (char_length(description) <= 1600),
+  photo_urls jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists artist_achievements_artist_idx on public.artist_achievements(artist_id, achievement_year desc, created_at desc);
+alter table public.artist_achievements enable row level security;
+drop policy if exists artist_achievements_public_read on public.artist_achievements;
+create policy artist_achievements_public_read on public.artist_achievements for select to anon, authenticated using (true);
+drop policy if exists artist_achievements_owner_insert on public.artist_achievements;
+create policy artist_achievements_owner_insert on public.artist_achievements for insert to authenticated with check (public.current_user_owns_artist(artist_id));
+drop policy if exists artist_achievements_owner_update on public.artist_achievements;
+create policy artist_achievements_owner_update on public.artist_achievements for update to authenticated using (public.current_user_owns_artist(artist_id)) with check (public.current_user_owns_artist(artist_id));
+drop policy if exists artist_achievements_owner_delete on public.artist_achievements;
+create policy artist_achievements_owner_delete on public.artist_achievements for delete to authenticated using (public.current_user_owns_artist(artist_id));
+grant select on public.artist_achievements to anon, authenticated;
+grant all on public.artist_achievements to service_role;
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('artist-achievements', 'artist-achievements', true, 8388608, array['image/jpeg','image/png','image/webp','image/avif'])
+on conflict (id) do update set public = true, file_size_limit = 8388608, allowed_mime_types = excluded.allowed_mime_types;
+drop policy if exists artist_achievement_images_public_read on storage.objects;
+create policy artist_achievement_images_public_read on storage.objects for select to anon, authenticated using (bucket_id = 'artist-achievements');
+drop policy if exists artist_achievement_images_owner_insert on storage.objects;
+create policy artist_achievement_images_owner_insert on storage.objects for insert to authenticated with check (bucket_id = 'artist-achievements' and (storage.foldername(name))[1] in (select id::text from public.artists where user_id = auth.uid()));
+drop policy if exists artist_achievement_images_owner_delete on storage.objects;
+create policy artist_achievement_images_owner_delete on storage.objects for delete to authenticated using (bucket_id = 'artist-achievements' and (storage.foldername(name))[1] in (select id::text from public.artists where user_id = auth.uid()));
+
+create table if not exists public.creative_entries (
+  id uuid primary key default gen_random_uuid(),
+  full_name text not null,
+  email text not null,
+  phone text not null,
+  city text not null,
+  discipline text not null,
+  portfolio_url text not null default '',
+  showcase_vision text not null,
+  status text not null default 'new' check (status in ('new','reviewing','contacted','converted','declined')),
+  host_notified_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists creative_entries_created_idx on public.creative_entries(created_at desc);
+alter table public.creative_entries enable row level security;
+revoke all on public.creative_entries from public, anon, authenticated;
+grant all on public.creative_entries to service_role;
+
+create table if not exists public.photography_concierge_inquiries (
+  id uuid primary key default gen_random_uuid(),
+  painting_id uuid references public.paintings(id) on delete set null,
+  artist_id uuid references public.artists(id) on delete set null,
+  artwork_title text not null default '',
+  full_name text not null,
+  email text not null,
+  phone text not null default '',
+  inquiry text not null,
+  created_at timestamptz not null default now()
+);
+alter table public.photography_concierge_inquiries enable row level security;
+revoke all on public.photography_concierge_inquiries from public, anon, authenticated;
+grant all on public.photography_concierge_inquiries to service_role;
+
+create table if not exists public.print_lab_dispatches (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null references public.orders(id) on delete cascade,
+  order_item_id uuid not null,
+  order_ref text not null default '',
+  payload jsonb not null default '{}'::jsonb,
+  email_status text not null default 'pending' check (email_status in ('pending','sending','sent','failed','not_configured')),
+  email_sent_at timestamptz,
+  webhook_status text not null default 'not_configured' check (webhook_status in ('pending','sending','sent','failed','not_configured')),
+  webhook_sent_at timestamptz,
+  last_error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(order_id, order_item_id)
+);
+alter table public.print_lab_dispatches enable row level security;
+revoke all on public.print_lab_dispatches from public, anon, authenticated;
+grant all on public.print_lab_dispatches to service_role;
+
+-- Replace payment confirmation with an atomic edition reservation. The same
+-- order-row and product-row locks used by the V19 stock protection are retained.
+create or replace function public.confirm_artiste_payment(p_order_id uuid, p_payment_id text)
+returns text language plpgsql security definer set search_path = public as $$
+declare
+  current_order public.orders%rowtype;
+  artwork_ids uuid[];
+  requested_count integer;
+  available_count integer;
+  current_item jsonb;
+  enriched_items jsonb := '[]'::jsonb;
+  item_ordinal bigint;
+  item_id uuid;
+  grade_no integer;
+  edition_row public.photography_editions%rowtype;
+  next_edition integer;
+  edition_limit_value integer;
+  serial_text text;
+begin
+  select * into current_order from public.orders where id = p_order_id for update;
+  if not found then return 'not_found'; end if;
+  if current_order.status = 'Paid' then
+    if current_order.razorpay_payment_id is not null and current_order.razorpay_payment_id <> p_payment_id then return 'payment_mismatch'; end if;
+    update public.orders set razorpay_payment_id = coalesce(razorpay_payment_id, p_payment_id), paid_at = coalesce(paid_at, now()) where id = p_order_id;
+    return 'already_paid';
+  end if;
+  if current_order.status <> 'Pending' then return 'conflict'; end if;
+
+  select array_agg((item->>'id')::uuid) into artwork_ids
+  from jsonb_array_elements(coalesce(current_order.items, '[]'::jsonb)) as x(item)
+  where coalesce(x.item->>'id', '') <> '';
+  if artwork_ids is null or cardinality(artwork_ids) = 0 then
+    begin artwork_ids := array[current_order.painting_id::uuid];
+    exception when others then return 'conflict'; end;
+  end if;
+
+  perform id from public.paintings where id = any(artwork_ids) order by id for update;
+  select count(*) into requested_count from (select distinct unnest(artwork_ids) as id) requested;
+  select count(*) into available_count
+  from public.paintings p
+  where p.id = any(artwork_ids) and p.is_approved = true and p.is_sold = false
+    and p.stock_quantity >= (select count(*) from unnest(artwork_ids) requested_id where requested_id = p.id);
+  if available_count <> requested_count then
+    update public.orders set status = 'Payment conflict', razorpay_payment_id = p_payment_id, shipment_status = 'Manual review', shipment_note = 'Payment captured but one or more artworks had insufficient stock or were unavailable. Refund review required.' where id = p_order_id;
+    return 'conflict';
+  end if;
+
+  -- Lock all photography edition rows before validating any counters, avoiding
+  -- concurrent sales of the final copy of the same grade.
+  for current_item, item_ordinal in
+    select value, ordinality from jsonb_array_elements(coalesce(current_order.items, '[]'::jsonb)) with ordinality
+    where coalesce(value->>'category', '') = 'Photography' order by (value->>'id'), (value->>'edition_grade')::integer
+  loop
+    item_id := (current_item->>'id')::uuid;
+    grade_no := coalesce(nullif(current_item->>'edition_grade','')::integer, 1);
+    select * into edition_row from public.photography_editions where painting_id = item_id and grade = grade_no for update;
+    if not found or edition_row.sold_count >= edition_row.edition_limit then
+      update public.orders set status = 'Payment conflict', razorpay_payment_id = p_payment_id, shipment_status = 'Manual review', shipment_note = 'Payment captured after the selected photography edition became unavailable. Refund review required.' where id = p_order_id;
+      return 'conflict';
+    end if;
+  end loop;
+
+  for current_item, item_ordinal in
+    select value, ordinality from jsonb_array_elements(coalesce(current_order.items, '[]'::jsonb)) with ordinality order by ordinality
+  loop
+    if coalesce(current_item->>'category', '') = 'Photography' then
+      item_id := (current_item->>'id')::uuid;
+      grade_no := coalesce(nullif(current_item->>'edition_grade','')::integer, 1);
+      update public.photography_editions set sold_count = sold_count + 1, updated_at = now()
+        where painting_id = item_id and grade = grade_no and sold_count < edition_limit
+        returning sold_count, edition_limit into next_edition, edition_limit_value;
+      if next_edition is null then
+        update public.orders set status = 'Payment conflict', razorpay_payment_id = p_payment_id, shipment_status = 'Manual review', shipment_note = 'Photography edition reservation requires manual review.' where id = p_order_id;
+        return 'conflict';
+      end if;
+      serial_text := 'ART-' || upper(substr(replace(item_id::text, '-', ''), 1, 8)) || '-G' || grade_no || '-' || lpad(next_edition::text, 2, '0');
+      current_item := current_item || jsonb_build_object('edition_number', next_edition, 'edition_total', edition_limit_value, 'coa_serial', serial_text, 'certificate_id', serial_text);
+    end if;
+    enriched_items := enriched_items || jsonb_build_array(current_item);
+  end loop;
+
+  update public.paintings p
+  set stock_quantity = greatest(0, p.stock_quantity - requested.quantity),
+      is_sold = (p.stock_quantity - requested.quantity) <= 0
+  from (select requested_id as id, count(*)::integer as quantity from unnest(artwork_ids) requested_id group by requested_id) requested
+  where p.id = requested.id and coalesce(p.category, '') <> 'Photography';
+
+  update public.orders set items = enriched_items, status = 'Paid', razorpay_payment_id = p_payment_id, paid_at = coalesce(paid_at, now()), shipment_status = 'Dispatch processing' where id = p_order_id;
+  return 'paid';
+end;
+$$;
+revoke all on function public.confirm_artiste_payment(uuid, text) from public, anon, authenticated;
+grant execute on function public.confirm_artiste_payment(uuid, text) to service_role;

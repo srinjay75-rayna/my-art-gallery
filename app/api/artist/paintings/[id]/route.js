@@ -88,7 +88,7 @@ export async function PATCH(request, { params }) {
     if (update.category !== undefined && !['Painting', 'Photography'].includes(update.category)) return NextResponse.json({ error: 'Choose Painting or Photography as the art form.' }, { status: 400 });
     if (['title', 'medium', 'dimensions'].some((key) => update[key] !== undefined && !String(update[key]).trim())) return NextResponse.json({ error: 'Title, medium and dimensions cannot be blank.' }, { status: 400 });
 
-    const limit = artist.creator_role === 'Photographer' ? 2 : 4;
+    const limit = artist.creator_role === 'Photographer' ? 4 : 4;
     const previous = Array.isArray(existing.gallery_images) && existing.gallery_images.length ? existing.gallery_images : [existing.image_url].filter(Boolean);
     let retained = previous;
     if (requestedGalleryImages !== null) {
@@ -116,6 +116,8 @@ export async function PATCH(request, { params }) {
 
     if (update.gallery_images !== undefined) {
       if (!update.gallery_images.length) return NextResponse.json({ error: 'Keep at least one artwork photo.' }, { status: 400 });
+      if (artist.creator_role === 'Photographer' && update.gallery_images.length < 3) return NextResponse.json({ error: 'A Fine-Art Photography listing must keep 3–4 high-resolution / preview photos.' }, { status: 400 });
+      if (update.gallery_images.length > 4) return NextResponse.json({ error: 'An artwork may keep no more than four photos.' }, { status: 400 });
       update.image_url = update.gallery_images[0];
     }
     if (!Object.keys(update).length) return NextResponse.json({ error: 'No changes supplied.' }, { status: 400 });
