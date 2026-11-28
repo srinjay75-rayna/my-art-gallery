@@ -1,7 +1,7 @@
-# Artiste V15 — The Indian Art House
+# Artiste V20 — The Indian Art House
 
-This is the complete Artiste V15 Next.js + Supabase marketplace project. The V15 feature overview, deployment sequence, environment requirements, protected integrations, and validation notes are documented in [`README-V15.md`](README-V15.md).
+This is the complete Artiste V20 Next.js + Supabase marketplace project. See [`README-V20.md`](README-V20.md) for the V20 feature overview, database migration order, environment configuration and validation notes.
 
-Before deployment, back up the production database, apply the reviewed additive migration in `database/schema.sql` to a staging Supabase project, configure the server-only environment variables from `.env.example`, and test customer checkout, creator onboarding, order documents, delivery webhooks, and owner payouts end to end.
+Before deployment, back up the production database, apply and validate the additive migration in `database/schema.sql` on staging, configure the server and public environment variables from `.env.example`, and test both the new V20 photography / creative-entry workflows and all existing Painter, checkout, shipping, accounting and owner workflows.
 
-The repository does not include production secrets or live service credentials. A static source check is not a guarantee of a bug-free production deployment.
+The archive does not include production secrets or live service credentials. Static source validation does not guarantee a bug-free production deployment.
